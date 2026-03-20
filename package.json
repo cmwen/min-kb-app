@@ -1,0 +1,40 @@
+{
+  "name": "min-kb-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmwen/min-kb-app.git"
+  },
+  "homepage": "https://github.com/cmwen/min-kb-app",
+  "bugs": {
+    "url": "https://github.com/cmwen/min-kb-app/issues"
+  },
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:packages": "pnpm --filter @min-kb-app/shared build && pnpm --filter @min-kb-app/min-kb-store build && pnpm --filter @min-kb-app/copilot-runtime build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "dev": "pnpm build:packages && concurrently -k -n runtime,web \"pnpm dev:runtime\" \"pnpm dev:web\"",
+    "dev:runtime": "pnpm --filter @min-kb-app/runtime dev",
+    "dev:web": "pnpm --filter @min-kb-app/web dev",
+    "dev:cli": "pnpm --filter @min-kb-app/cli dev",
+    "prepare:github-packages": "node ./scripts/prepare-github-packages.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "latest",
+    "concurrently": "latest",
+    "jsdom": "^29.0.1",
+    "tsup": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

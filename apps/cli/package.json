@@ -1,0 +1,16 @@
+{
+  "name": "@min-kb-app/cli",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --out-dir dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@min-kb-app/shared": "workspace:*",
+    "commander": "latest"
+  }
+}

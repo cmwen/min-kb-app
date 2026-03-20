@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/min-kb-store" },
+    { "path": "./packages/copilot-runtime" },
+    { "path": "./apps/runtime" },
+    { "path": "./apps/cli" },
+    { "path": "./apps/web" }
+  ]
+}

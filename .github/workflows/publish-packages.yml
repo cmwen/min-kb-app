@@ -1,0 +1,54 @@
+name: Publish GitHub Packages
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@cmwen"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate workspace
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build:packages
+
+      - name: Prepare GitHub Packages artifacts
+        run: pnpm prepare:github-packages
+
+      - name: Publish packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for package_dir in .release/github-packages/*; do
+            echo "Publishing ${package_dir}"
+            npm publish "${package_dir}"
+          done

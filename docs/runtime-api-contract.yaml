@@ -1,0 +1,933 @@
+openapi: 3.1.0
+info:
+  title: min-kb-app runtime API
+  version: 0.1.0
+  description: >-
+    Contract for the runtime endpoints consumed by the web client. Schemas mirror
+    the shared Zod types exported from packages/shared/src/index.ts.
+servers:
+  - url: http://localhost:8787
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Check runtime health and workspace resolution
+      responses:
+        '200':
+          description: Runtime status and workspace summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - ok
+                  - workspace
+                properties:
+                  ok:
+                    type: boolean
+                  workspace:
+                    $ref: '#/components/schemas/WorkspaceSummary'
+  /api/workspace:
+    get:
+      operationId: getWorkspace
+      summary: Read workspace metadata
+      responses:
+        '200':
+          description: Workspace summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceSummary'
+  /api/models:
+    get:
+      operationId: listModels
+      summary: List runtime model options
+      responses:
+        '200':
+          description: Available model descriptors.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModelDescriptor'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents:
+    get:
+      operationId: listAgents
+      summary: List agents discovered from the min-kb-store
+      responses:
+        '200':
+          description: Agent summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentSummary'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}:
+    get:
+      operationId: getAgent
+      summary: Read a single agent summary
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: The requested agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSummary'
+        '404':
+          $ref: '#/components/responses/ApiError'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}/skills:
+    get:
+      operationId: listSkills
+      summary: List skills available to an agent
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Skill descriptors for the requested agent.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillDescriptor'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}/sessions:
+    get:
+      operationId: listSessions
+      summary: List saved session cards for an agent
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Session summaries sorted by the store layer. For copilot-orchestrator, the summaries are derived from orchestrator sessions so they still fit the existing session rail.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatSessionSummary'
+        '500':
+          $ref: '#/components/responses/ApiError'
+    post:
+      operationId: createSessionMessage
+      summary: Start a new session and persist the first user and assistant turns
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: The updated thread plus the assistant turn just written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: The built-in orchestrator agent uses dedicated /api/orchestrator endpoints for writes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}/sessions/{sessionId}:
+    get:
+      operationId: getSession
+      summary: Load a full session payload
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Full thread with turns and runtime config for chat agents, or full orchestrator session state for the built-in orchestrator agent.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ChatSession'
+                  - $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}/sessions/{sessionId}/messages:
+    post:
+      operationId: appendSessionMessage
+      summary: Append a user message to an existing chat and persist the assistant reply
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: The updated thread plus the assistant turn just written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: The built-in orchestrator agent uses dedicated /api/orchestrator endpoints for writes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/agents/{agentId}/sessions/{sessionId}/analyze-for-memory:
+    post:
+      operationId: analyzeSessionForMemory
+      summary: Run a GPT-4.1 memory-analysis pass over a chat session without persisting extra turns
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryAnalysisRequest'
+      responses:
+        '200':
+          description: Markdown analysis plus the memory-related skills enabled for the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryAnalysisResponse'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/capabilities:
+    get:
+      operationId: getOrchestratorCapabilities
+      summary: Report whether tmux and the Copilot CLI are available for orchestration
+      responses:
+        '200':
+          description: Built-in orchestrator runtime capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorCapabilities'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions:
+    get:
+      operationId: listOrchestratorSessions
+      summary: List saved orchestrator sessions
+      responses:
+        '200':
+          description: Full orchestrator sessions with job history and recent terminal output.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+    post:
+      operationId: createOrchestratorSession
+      summary: Create a tmux-backed orchestrator session and optionally queue an initial delegated prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrchestratorSessionCreateRequest'
+      responses:
+        '200':
+          description: Full orchestrator session state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions/{sessionId}:
+    get:
+      operationId: getOrchestratorSession
+      summary: Load an orchestrator session with recent terminal output and job history
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Full orchestrator session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions/{sessionId}/jobs:
+    post:
+      operationId: delegateOrchestratorJob
+      summary: Queue an async Copilot CLI delegation into the tmux window for an orchestrator session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrchestratorDelegateRequest'
+      responses:
+        '200':
+          description: Updated orchestrator session after the job is queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions/{sessionId}/input:
+    post:
+      operationId: sendOrchestratorInput
+      summary: Send raw terminal input to the tmux pane for an orchestrator session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrchestratorTerminalInputRequest'
+      responses:
+        '200':
+          description: Updated orchestrator session after the input is sent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions/{sessionId}/cancel:
+    post:
+      operationId: cancelOrchestratorJob
+      summary: Cancel the active delegated job and recreate the tmux pane for future work
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Updated orchestrator session after the running job is marked failed and the pane is recovered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorSession'
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/orchestrator/sessions/{sessionId}/stream:
+    get:
+      operationId: streamOrchestratorTerminal
+      summary: Stream tmux terminal output for an orchestrator session via server-sent events
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: offset
+          in: query
+          required: false
+          description: Byte offset into terminal/pane.log. Defaults to 0.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: Server-sent events carrying session, output, heartbeat, and error payloads as JSON.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/ApiError'
+  /api/memory:
+    get:
+      operationId: listMemory
+      summary: List memory entries, optionally filtered by agent
+      parameters:
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Memory entries from shared and agent scopes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MemoryEntry'
+        '500':
+          $ref: '#/components/responses/ApiError'
+components:
+  parameters:
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    ApiError:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+  schemas:
+    ReasoningEffort:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+        - xhigh
+    SkillScope:
+      type: string
+      enum:
+        - copilot-global
+        - store-global
+        - agent-local
+    LocalMcpServerConfig:
+      type: object
+      required:
+        - type
+        - command
+      properties:
+        type:
+          type: string
+          enum:
+            - local
+            - stdio
+        command:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+          default: []
+        cwd:
+          type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+        tools:
+          type: array
+          items:
+            type: string
+          default:
+            - '*'
+        timeout:
+          type: integer
+          minimum: 1
+    RemoteMcpServerConfig:
+      type: object
+      required:
+        - type
+        - url
+      properties:
+        type:
+          type: string
+          enum:
+            - http
+            - sse
+        url:
+          type: string
+          format: uri
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          default: {}
+        tools:
+          type: array
+          items:
+            type: string
+          default:
+            - '*'
+        timeout:
+          type: integer
+          minimum: 1
+    McpServerConfig:
+      oneOf:
+        - $ref: '#/components/schemas/LocalMcpServerConfig'
+        - $ref: '#/components/schemas/RemoteMcpServerConfig'
+      discriminator:
+        propertyName: type
+        mapping:
+          local: '#/components/schemas/LocalMcpServerConfig'
+          stdio: '#/components/schemas/LocalMcpServerConfig'
+          http: '#/components/schemas/RemoteMcpServerConfig'
+          sse: '#/components/schemas/RemoteMcpServerConfig'
+    ChatRuntimeConfig:
+      type: object
+      required:
+        - model
+        - disabledSkills
+        - mcpServers
+      properties:
+        model:
+          type: string
+        reasoningEffort:
+          $ref: '#/components/schemas/ReasoningEffort'
+        disabledSkills:
+          type: array
+          items:
+            type: string
+        mcpServers:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/McpServerConfig'
+    ModelDescriptor:
+      type: object
+      required:
+        - id
+        - displayName
+        - supportedReasoningEfforts
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        provider:
+          type: string
+        supportedReasoningEfforts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReasoningEffort'
+        defaultReasoningEffort:
+          $ref: '#/components/schemas/ReasoningEffort'
+    SkillDescriptor:
+      type: object
+      required:
+        - name
+        - description
+        - scope
+        - path
+        - sourceRoot
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        scope:
+          $ref: '#/components/schemas/SkillScope'
+        path:
+          type: string
+        sourceRoot:
+          type: string
+    AgentSummary:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - description
+        - combinedPrompt
+        - agentPath
+        - defaultSoulPath
+        - historyRoot
+        - workingMemoryRoot
+        - skillRoot
+        - skillNames
+        - sessionCount
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: '#/components/schemas/AgentKind'
+        title:
+          type: string
+        description:
+          type: string
+        combinedPrompt:
+          type: string
+        agentPath:
+          type: string
+        defaultSoulPath:
+          type: string
+        soulPath:
+          type: string
+        historyRoot:
+          type: string
+        workingMemoryRoot:
+          type: string
+        skillRoot:
+          type: string
+        skillNames:
+          type: array
+          items:
+            type: string
+        sessionCount:
+          type: integer
+          minimum: 0
+    AgentKind:
+      type: string
+      enum:
+        - chat
+        - orchestrator
+    ChatTurn:
+      type: object
+      required:
+        - messageId
+        - sender
+        - createdAt
+        - bodyMarkdown
+        - relativePath
+      properties:
+        messageId:
+          type: string
+        sender:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+            - tool
+        createdAt:
+          type: string
+        bodyMarkdown:
+          type: string
+        relativePath:
+          type: string
+    ChatSessionSummary:
+      type: object
+      required:
+        - sessionId
+        - agentId
+        - title
+        - startedAt
+        - summary
+        - manifestPath
+        - turnCount
+      properties:
+        sessionId:
+          type: string
+        agentId:
+          type: string
+        title:
+          type: string
+        startedAt:
+          type: string
+        summary:
+          type: string
+        manifestPath:
+          type: string
+        turnCount:
+          type: integer
+          minimum: 0
+        lastTurnAt:
+          type: string
+        runtimeConfig:
+          $ref: '#/components/schemas/ChatRuntimeConfig'
+    ChatSession:
+      allOf:
+        - $ref: '#/components/schemas/ChatSessionSummary'
+        - type: object
+          required:
+            - turns
+          properties:
+            turns:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChatTurn'
+    ChatRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        sessionId:
+          type: string
+        title:
+          type: string
+        prompt:
+          type: string
+        config:
+          $ref: '#/components/schemas/ChatRuntimeConfig'
+    ChatResponse:
+      type: object
+      required:
+        - thread
+        - assistantTurn
+      properties:
+        thread:
+          $ref: '#/components/schemas/ChatSession'
+        assistantTurn:
+          $ref: '#/components/schemas/ChatTurn'
+    OrchestratorJobStatus:
+      type: string
+      enum:
+        - queued
+        - running
+        - completed
+        - failed
+    OrchestratorSessionStatus:
+      type: string
+      enum:
+        - idle
+        - running
+        - completed
+        - failed
+        - missing
+    OrchestratorPromptMode:
+      type: string
+      enum:
+        - inline
+        - file
+    OrchestratorJob:
+      type: object
+      required:
+        - jobId
+        - sessionId
+        - promptPreview
+        - promptMode
+        - status
+        - submittedAt
+        - jobDirectory
+      properties:
+        jobId:
+          type: string
+        sessionId:
+          type: string
+        promptPreview:
+          type: string
+        promptMode:
+          $ref: '#/components/schemas/OrchestratorPromptMode'
+        promptPath:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrchestratorJobStatus'
+        submittedAt:
+          type: string
+        startedAt:
+          type: string
+        completedAt:
+          type: string
+        exitCode:
+          type: integer
+        jobDirectory:
+          type: string
+    OrchestratorSessionSummary:
+      type: object
+      required:
+        - sessionId
+        - agentId
+        - title
+        - startedAt
+        - updatedAt
+        - summary
+        - projectPath
+        - projectPurpose
+        - tmuxSessionName
+        - tmuxWindowName
+        - tmuxPaneId
+        - status
+        - sessionDirectory
+        - manifestPath
+      properties:
+        sessionId:
+          type: string
+        agentId:
+          type: string
+        title:
+          type: string
+        startedAt:
+          type: string
+        updatedAt:
+          type: string
+        summary:
+          type: string
+        projectPath:
+          type: string
+        projectPurpose:
+          type: string
+        tmuxSessionName:
+          type: string
+        tmuxWindowName:
+          type: string
+        tmuxPaneId:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrchestratorSessionStatus'
+        activeJobId:
+          type: string
+        lastJobId:
+          type: string
+        sessionDirectory:
+          type: string
+        manifestPath:
+          type: string
+    OrchestratorSession:
+      allOf:
+        - $ref: '#/components/schemas/OrchestratorSessionSummary'
+        - type: object
+          required:
+            - jobs
+            - terminalTail
+            - logSize
+          properties:
+            jobs:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrchestratorJob'
+            terminalTail:
+              type: string
+            logSize:
+              type: integer
+              minimum: 0
+    OrchestratorCapabilities:
+      type: object
+      required:
+        - available
+        - defaultProjectPath
+        - tmuxInstalled
+        - copilotInstalled
+        - tmuxSessionName
+      properties:
+        available:
+          type: boolean
+        defaultProjectPath:
+          type: string
+        tmuxInstalled:
+          type: boolean
+        copilotInstalled:
+          type: boolean
+        tmuxSessionName:
+          type: string
+    OrchestratorSessionCreateRequest:
+      type: object
+      required:
+        - projectPath
+        - projectPurpose
+      properties:
+        title:
+          type: string
+        projectPath:
+          type: string
+        projectPurpose:
+          type: string
+        prompt:
+          type: string
+    OrchestratorDelegateRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+    OrchestratorTerminalInputRequest:
+      type: object
+      required:
+        - input
+      properties:
+        input:
+          type: string
+        submit:
+          type: boolean
+          default: true
+    WorkspaceSummary:
+      type: object
+      required:
+        - storeRoot
+        - copilotConfigDir
+        - storeSkillDirectory
+        - copilotSkillDirectory
+        - agentCount
+      properties:
+        storeRoot:
+          type: string
+        copilotConfigDir:
+          type: string
+        storeSkillDirectory:
+          type: string
+        copilotSkillDirectory:
+          type: string
+        agentCount:
+          type: integer
+          minimum: 0
+    MemoryEntry:
+      type: object
+      required:
+        - id
+        - type
+        - title
+        - path
+        - scope
+        - tags
+        - topics
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        path:
+          type: string
+        scope:
+          type: string
+          enum:
+            - shared
+            - agent
+        agentId:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        topics:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+    MemoryAnalysisRequest:
+      type: object
+      properties:
+        config:
+          $ref: '#/components/schemas/ChatRuntimeConfig'
+    MemoryAnalysisResponse:
+      type: object
+      required:
+        - markdown
+        - model
+        - enabledSkillNames
+      properties:
+        markdown:
+          type: string
+        model:
+          type: string
+        enabledSkillNames:
+          type: array
+          items:
+            type: string
+    ApiError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string

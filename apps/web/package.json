@@ -1,0 +1,27 @@
+{
+  "name": "@min-kb-app/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@min-kb-app/shared": "workspace:*",
+    "ansi-to-react": "^6.2.6",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-markdown": "latest",
+    "workbox-window": "^7.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "^5.2.0",
+    "vite": "^7.3.1",
+    "vite-plugin-pwa": "latest"
+  }
+}

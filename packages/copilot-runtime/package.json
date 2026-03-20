@@ -1,0 +1,23 @@
+{
+  "name": "@min-kb-app/copilot-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "latest",
+    "@min-kb-app/min-kb-store": "workspace:*",
+    "@min-kb-app/shared": "workspace:*"
+  }
+}
