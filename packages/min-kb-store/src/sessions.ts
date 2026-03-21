@@ -2,13 +2,24 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
+  AttachmentUpload,
   ChatRuntimeConfig,
   ChatSession,
   ChatSessionSummary,
   ChatTurn,
+  LlmRequestStats,
+  LlmSessionStats,
+  StoredAttachment,
   TurnSender,
 } from "@min-kb-app/shared";
-import { chatRuntimeConfigSchema, senderSchema } from "@min-kb-app/shared";
+import {
+  attachmentUploadSchema,
+  chatRuntimeConfigSchema,
+  llmRequestStatsSchema,
+  llmSessionStatsSchema,
+  senderSchema,
+  storedAttachmentSchema,
+} from "@min-kb-app/shared";
 import {
   compactTimestamp,
   displayTimestamp,
@@ -26,6 +37,8 @@ const SESSION_HEADER = "# Chat Session: ";
 const SUMMARY_MARKER = "\n## Summary\n\n";
 const CHAT_HISTORY_SCHEMA = "opencode-chat-message-block-v1";
 const DEFAULT_SUMMARY = "Pending summary.";
+const LLM_STATS_FILENAME = "LLM_STATS.json";
+const TURN_METADATA_FILENAME_SUFFIX = ".json";
 const TURN_PATTERN =
   /^## \[(?<timestamp>[^\]]+)\] (?<sender>[^\n]+)\n\n(?<body>[\s\S]*)\n---\n?$/;
 
@@ -39,6 +52,7 @@ export interface SaveChatTurnInput {
   createdAt?: string;
   startedAt?: string;
   runtimeConfig?: ChatRuntimeConfig;
+  attachment?: AttachmentUpload;
 }
 
 export async function listSessions(
@@ -104,13 +118,31 @@ export async function saveChatTurn(
     path.dirname(resolveManifestPath(workspace, session)),
     "turns"
   );
+  const sessionDirectory = path.dirname(
+    resolveManifestPath(workspace, session)
+  );
   await fs.mkdir(turnsRoot, { recursive: true });
   const turnPath = path.join(turnsRoot, turnFilename(createdAt, sender));
+  const attachment = input.attachment
+    ? await writeTurnAttachment(
+        workspace,
+        sessionDirectory,
+        path.basename(turnPath, ".md"),
+        input.attachment
+      )
+    : undefined;
   await fs.writeFile(
     turnPath,
     renderTurn(sender, input.bodyMarkdown, createdAt),
     "utf8"
   );
+  if (attachment) {
+    await fs.writeFile(
+      turnMetadataPath(turnPath),
+      `${JSON.stringify({ attachment }, null, 2)}\n`,
+      "utf8"
+    );
+  }
 
   if (input.summary !== undefined) {
     await updateSessionSummary(
@@ -156,6 +188,41 @@ export async function updateSessionSummary(
     ),
     "utf8"
   );
+}
+
+export async function deleteSession(
+  workspace: MinKbWorkspace,
+  agentId: string,
+  sessionId: string
+): Promise<void> {
+  const manifestPath = await findSessionManifest(workspace, agentId, sessionId);
+  if (!manifestPath) {
+    throw new Error(
+      `Cannot delete missing session ${sessionId} for ${agentId}`
+    );
+  }
+
+  await fs.rm(path.dirname(manifestPath), { recursive: true, force: true });
+}
+
+export async function recordSessionLlmUsage(
+  workspace: MinKbWorkspace,
+  agentId: string,
+  sessionId: string,
+  usage: LlmRequestStats
+): Promise<LlmSessionStats> {
+  const manifestPath = await findSessionManifest(workspace, agentId, sessionId);
+  if (!manifestPath) {
+    throw new Error(
+      `Cannot record LLM stats for missing session ${sessionId} for agent ${agentId}`
+    );
+  }
+
+  const sessionDirectory = path.dirname(manifestPath);
+  const current = await readLlmStats(sessionDirectory);
+  const next = accumulateLlmSessionStats(current, usage);
+  await writeLlmStats(sessionDirectory, next);
+  return next;
 }
 
 async function ensureSession(
@@ -218,6 +285,7 @@ async function readSessionSummary(
   turnFiles.sort((left, right) => left.localeCompare(right));
   const lastTurnPath = turnFiles.at(-1);
   const runtimeConfig = await readRuntimeConfig(path.dirname(manifestPath));
+  const llmStats = await readLlmStats(path.dirname(manifestPath));
 
   return {
     ...base,
@@ -225,6 +293,7 @@ async function readSessionSummary(
     turnCount: turnFiles.length,
     lastTurnAt: lastTurnPath ? createdAtFromTurnPath(lastTurnPath) : undefined,
     runtimeConfig,
+    llmStats,
   };
 }
 
@@ -306,12 +375,21 @@ async function parseTurn(
     throw new Error(`Incomplete turn file: ${turnPath}`);
   }
 
+  const metadataRaw = await readOptionalFile(turnMetadataPath(turnPath));
+  const parsedMetadata = metadataRaw
+    ? (JSON.parse(metadataRaw) as { attachment?: unknown })
+    : undefined;
+  const attachment = parsedMetadata?.attachment
+    ? storedAttachmentSchema.parse(parsedMetadata.attachment)
+    : undefined;
+
   return {
     messageId: path.basename(turnPath, ".md"),
     sender: senderSchema.parse(sender.trim()) as TurnSender,
     createdAt: createdAtFromTurnPath(turnPath),
     bodyMarkdown: bodyMarkdown.trimEnd(),
     relativePath: toPosixRelative(workspace.storeRoot, turnPath),
+    attachment,
   };
 }
 
@@ -405,6 +483,63 @@ function renderTurn(
   );
 }
 
+function turnMetadataPath(turnPath: string): string {
+  return `${turnPath}${TURN_METADATA_FILENAME_SUFFIX}`;
+}
+
+async function writeTurnAttachment(
+  workspace: MinKbWorkspace,
+  sessionDirectory: string,
+  messageId: string,
+  attachment: AttachmentUpload
+): Promise<StoredAttachment> {
+  const normalized = attachmentUploadSchema.parse(attachment);
+  const attachmentId = randomUUID().replace(/-/g, "");
+  const attachmentDirectory = path.join(
+    sessionDirectory,
+    "attachments",
+    messageId
+  );
+  await fs.mkdir(attachmentDirectory, { recursive: true });
+
+  const normalizedFilename = buildAttachmentFilename(normalized.name);
+  const attachmentPath = path.join(attachmentDirectory, normalizedFilename);
+  const buffer = Buffer.from(normalized.base64Data, "base64");
+  await fs.writeFile(attachmentPath, buffer);
+
+  return storedAttachmentSchema.parse({
+    attachmentId,
+    name: normalized.name,
+    contentType: normalized.contentType,
+    size: buffer.length,
+    mediaType: classifyAttachmentMediaType(normalized.contentType),
+    relativePath: toPosixRelative(workspace.storeRoot, attachmentPath),
+  });
+}
+
+function buildAttachmentFilename(name: string): string {
+  const extension = path.extname(name).toLowerCase();
+  const stem = path.basename(name, extension);
+  const normalizedStem = slugify(stem) || "attachment";
+  return `${normalizedStem}${extension}`;
+}
+
+function classifyAttachmentMediaType(
+  contentType: string
+): StoredAttachment["mediaType"] {
+  if (contentType.startsWith("image/")) {
+    return "image";
+  }
+  if (
+    contentType.startsWith("text/") ||
+    contentType.includes("json") ||
+    contentType.includes("xml")
+  ) {
+    return "text";
+  }
+  return "binary";
+}
+
 function humanizeSessionId(sessionId?: string): string | undefined {
   if (!sessionId) {
     return undefined;
@@ -451,4 +586,63 @@ async function writeRuntimeConfig(
     `${JSON.stringify(normalized, null, 2)}\n`,
     "utf8"
   );
+}
+
+async function readLlmStats(
+  sessionDirectory: string
+): Promise<LlmSessionStats | undefined> {
+  const raw = await readOptionalFile(
+    path.join(sessionDirectory, LLM_STATS_FILENAME)
+  );
+  if (!raw) {
+    return undefined;
+  }
+
+  return llmSessionStatsSchema.parse(JSON.parse(raw));
+}
+
+async function writeLlmStats(
+  sessionDirectory: string,
+  stats: LlmSessionStats
+): Promise<void> {
+  const normalized = llmSessionStatsSchema.parse(stats);
+  await fs.writeFile(
+    path.join(sessionDirectory, LLM_STATS_FILENAME),
+    `${JSON.stringify(normalized, null, 2)}\n`,
+    "utf8"
+  );
+}
+
+function accumulateLlmSessionStats(
+  current: LlmSessionStats | undefined,
+  usage: LlmRequestStats
+): LlmSessionStats {
+  const normalizedCurrent = llmSessionStatsSchema.parse(current ?? {});
+  const normalizedUsage = llmRequestStatsSchema.parse(usage);
+
+  return llmSessionStatsSchema.parse({
+    requestCount: normalizedCurrent.requestCount + normalizedUsage.requestCount,
+    premiumRequestUnits:
+      normalizedCurrent.premiumRequestUnits +
+      normalizedUsage.premiumRequestUnits,
+    inputTokens: normalizedCurrent.inputTokens + normalizedUsage.inputTokens,
+    outputTokens: normalizedCurrent.outputTokens + normalizedUsage.outputTokens,
+    cacheReadTokens:
+      normalizedCurrent.cacheReadTokens + normalizedUsage.cacheReadTokens,
+    cacheWriteTokens:
+      normalizedCurrent.cacheWriteTokens + normalizedUsage.cacheWriteTokens,
+    totalCost: normalizedCurrent.totalCost + normalizedUsage.cost,
+    totalDurationMs:
+      normalizedCurrent.totalDurationMs + normalizedUsage.durationMs,
+    totalNanoAiu:
+      normalizedCurrent.totalNanoAiu + (normalizedUsage.totalNanoAiu ?? 0),
+    lastRecordedAt: normalizedUsage.recordedAt,
+    lastModel: normalizedUsage.model,
+    lastReasoningEffort:
+      normalizedUsage.reasoningEffort ?? normalizedCurrent.lastReasoningEffort,
+    quotaSnapshots:
+      Object.keys(normalizedUsage.quotaSnapshots).length > 0
+        ? normalizedUsage.quotaSnapshots
+        : normalizedCurrent.quotaSnapshots,
+  });
 }

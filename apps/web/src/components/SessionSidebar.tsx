@@ -4,6 +4,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 interface SessionSidebarProps {
   agent?: AgentSummary;
   sessions: ChatSessionSummary[];
+  notificationSessionIds?: ReadonlySet<string>;
   selectedSessionId?: string;
   sessionLabel?: string;
   newSessionLabel?: string;
@@ -57,6 +58,9 @@ export function SessionSidebar(props: SessionSidebarProps) {
         ) : (
           props.sessions.map((session, index) => {
             const selected = session.sessionId === props.selectedSessionId;
+            const showNotification =
+              !selected &&
+              (props.notificationSessionIds?.has(session.sessionId) ?? false);
             return (
               <button
                 type="button"
@@ -73,7 +77,20 @@ export function SessionSidebar(props: SessionSidebarProps) {
                   )
                 }
               >
-                <div className="session-card-title">{session.title}</div>
+                <div className="session-card-header">
+                  <div className="session-card-title">{session.title}</div>
+                  {showNotification ? (
+                    <span
+                      className="session-notification-dot"
+                      role="img"
+                      aria-label={
+                        session.completionStatus === "failed"
+                          ? "Session failed while you were away"
+                          : "Session completed while you were away"
+                      }
+                    />
+                  ) : null}
+                </div>
                 <div className="session-card-meta">
                   {new Date(
                     session.lastTurnAt ?? session.startedAt

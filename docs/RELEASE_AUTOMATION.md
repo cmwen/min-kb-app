@@ -39,8 +39,8 @@ Those transformed copies are created in `.release/github-packages/` from the bui
 
 Dependabot is configured for:
 
-- the root pnpm workspace
-- GitHub Actions workflow updates
+- the root pnpm workspace, with npm updates grouped into a single workspace PR
+- GitHub Actions workflow updates, grouped into a single actions PR
 
 ## Local preparation
 

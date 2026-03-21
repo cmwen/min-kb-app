@@ -1,10 +1,16 @@
 import type { ModelInfo } from "@github/copilot-sdk";
 import { describe, expect, it } from "vitest";
 import {
+  COPILOT_RUNTIME_PROVIDER,
   FALLBACK_MODELS,
+  findModelDescriptor,
+  getModelsForProvider,
   inferModelProvider,
+  LM_STUDIO_RUNTIME_PROVIDER,
+  mapLmStudioModelToDescriptor,
   mapModelInfoToDescriptor,
   mergeModelCatalogs,
+  normalizeConfigForModel,
 } from "./models";
 
 function buildModelInfo(overrides: Partial<ModelInfo>): ModelInfo {
@@ -42,6 +48,9 @@ describe("mapModelInfoToDescriptor", () => {
         buildModelInfo({
           id: "gpt-5.4",
           name: "GPT-5.4",
+          billing: {
+            multiplier: 3,
+          },
           supportedReasoningEfforts: ["medium", "high"],
           defaultReasoningEffort: "medium",
         })
@@ -49,21 +58,169 @@ describe("mapModelInfoToDescriptor", () => {
     ).toEqual({
       id: "gpt-5.4",
       displayName: "GPT-5.4",
+      runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
       provider: "OpenAI",
+      premiumRequestMultiplier: 3,
       supportedReasoningEfforts: ["medium", "high"],
       defaultReasoningEffort: "medium",
     });
   });
 });
 
+describe("mapLmStudioModelToDescriptor", () => {
+  it("tags LM Studio models with the runtime provider id", () => {
+    expect(
+      mapLmStudioModelToDescriptor({
+        id: "qwen2.5-7b-instruct",
+        owned_by: "lmstudio-community",
+      })
+    ).toEqual({
+      id: "qwen2.5-7b-instruct",
+      displayName: "qwen2.5-7b-instruct",
+      runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+      provider: "lmstudio-community",
+      supportedReasoningEfforts: [],
+    });
+  });
+});
+
+describe("findModelDescriptor", () => {
+  it("returns the matching model entry for the selected provider", () => {
+    expect(
+      findModelDescriptor(
+        [
+          {
+            id: "gpt-4.1",
+            displayName: "GPT-4.1",
+            runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
+            provider: "OpenAI",
+            supportedReasoningEfforts: [],
+          },
+          {
+            id: "gpt-4.1",
+            displayName: "GPT-4.1 local",
+            runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+            supportedReasoningEfforts: [],
+          },
+        ],
+        "gpt-4.1",
+        LM_STUDIO_RUNTIME_PROVIDER.id
+      )
+    ).toEqual({
+      id: "gpt-4.1",
+      displayName: "GPT-4.1 local",
+      runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+      supportedReasoningEfforts: [],
+    });
+  });
+});
+
+describe("getModelsForProvider", () => {
+  it("filters a mixed catalog by runtime provider", () => {
+    expect(
+      getModelsForProvider(
+        [
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
+            supportedReasoningEfforts: [],
+          },
+          {
+            id: "llama-3.1",
+            displayName: "llama-3.1",
+            runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+            supportedReasoningEfforts: [],
+          },
+        ],
+        LM_STUDIO_RUNTIME_PROVIDER.id
+      )
+    ).toEqual([
+      {
+        id: "llama-3.1",
+        displayName: "llama-3.1",
+        runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+        supportedReasoningEfforts: [],
+      },
+    ]);
+  });
+});
+
+describe("normalizeConfigForModel", () => {
+  it("keeps supported reasoning effort", () => {
+    expect(
+      normalizeConfigForModel(
+        {
+          provider: COPILOT_RUNTIME_PROVIDER.id,
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        [
+          {
+            id: "gpt-5.4",
+            displayName: "GPT-5.4",
+            runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
+            provider: "OpenAI",
+            supportedReasoningEfforts: ["medium", "high"],
+          },
+        ]
+      )
+    ).toEqual({
+      provider: COPILOT_RUNTIME_PROVIDER.id,
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+      disabledSkills: [],
+      mcpServers: {},
+    });
+  });
+
+  it("switches to the first model available for the selected provider", () => {
+    expect(
+      normalizeConfigForModel(
+        {
+          provider: LM_STUDIO_RUNTIME_PROVIDER.id,
+          model: "gpt-5",
+          reasoningEffort: "high",
+          disabledSkills: ["memory-capture"],
+          mcpServers: {},
+        },
+        [
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
+            supportedReasoningEfforts: ["high"],
+          },
+          {
+            id: "qwen2.5-7b-instruct",
+            displayName: "qwen2.5-7b-instruct",
+            runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+            supportedReasoningEfforts: [],
+          },
+        ]
+      )
+    ).toEqual({
+      provider: LM_STUDIO_RUNTIME_PROVIDER.id,
+      model: "qwen2.5-7b-instruct",
+      reasoningEffort: undefined,
+      disabledSkills: ["memory-capture"],
+      mcpServers: {},
+    });
+  });
+});
+
 describe("mergeModelCatalogs", () => {
-  it("deduplicates entries and preserves richer metadata", () => {
+  it("deduplicates entries by runtime provider and preserves richer metadata", () => {
     const merged = mergeModelCatalogs(
       [
         {
           id: "gpt-5.4",
           displayName: "GPT-5.4",
+          runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
           provider: "OpenAI",
+          premiumRequestMultiplier: 3,
           supportedReasoningEfforts: [],
         },
       ],
@@ -71,8 +228,15 @@ describe("mergeModelCatalogs", () => {
         {
           id: "gpt-5.4",
           displayName: "GPT-5.4",
+          runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
           supportedReasoningEfforts: ["high", "medium", "high"],
           defaultReasoningEffort: "medium",
+        },
+        {
+          id: "gpt-5.4",
+          displayName: "GPT-5.4 local",
+          runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+          supportedReasoningEfforts: [],
         },
       ]
     );
@@ -80,14 +244,29 @@ describe("mergeModelCatalogs", () => {
     expect(merged).toContainEqual({
       id: "gpt-5.4",
       displayName: "GPT-5.4",
+      runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
       provider: "OpenAI",
+      premiumRequestMultiplier: 3,
       supportedReasoningEfforts: ["high", "medium"],
       defaultReasoningEffort: "medium",
+    });
+    expect(merged).toContainEqual({
+      id: "gpt-5.4",
+      displayName: "GPT-5.4 local",
+      provider: "OpenAI",
+      runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
+      supportedReasoningEfforts: [],
     });
   });
 
   it("ships a fallback catalog that still includes the default model", () => {
-    expect(FALLBACK_MODELS.some((model) => model.id === "gpt-5")).toBe(true);
+    expect(
+      FALLBACK_MODELS.some(
+        (model) =>
+          model.id === "gpt-5" &&
+          model.runtimeProvider === COPILOT_RUNTIME_PROVIDER.id
+      )
+    ).toBe(true);
     expect(
       FALLBACK_MODELS.some((model) => model.id === "claude-sonnet-4.6")
     ).toBe(true);

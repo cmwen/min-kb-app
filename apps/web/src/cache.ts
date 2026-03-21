@@ -1,11 +1,17 @@
 import type {
   AgentSummary,
+  ChatProviderDescriptor,
   ChatRequest,
   ChatSession,
   ChatSessionSummary,
   ModelDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
+import { DEFAULT_CHAT_PROVIDER } from "@min-kb-app/shared";
+import {
+  normalizeSessionNotificationAcks,
+  type SessionNotificationAcks,
+} from "./session-notifications";
 import {
   createDefaultUiPreferences,
   normalizeUiPreferences,
@@ -16,10 +22,13 @@ const SNAPSHOT_KEY = "min-kb-app:snapshot";
 const QUEUE_KEY = "min-kb-app:queue";
 const DRAFT_PREFIX = "min-kb-app:draft:";
 const UI_PREFERENCES_KEY = "min-kb-app:ui-preferences";
+const SESSION_NOTIFICATION_ACKS_KEY = "min-kb-app:session-notification-acks";
 
 export interface CachedSnapshot {
   workspace?: WorkspaceSummary;
   agents: AgentSummary[];
+  providers: ChatProviderDescriptor[];
+  defaultProvider: string;
   models: ModelDescriptor[];
   sessionsByAgent: Record<string, ChatSessionSummary[]>;
   threadsByKey: Record<string, ChatSession>;
@@ -39,6 +48,8 @@ export function loadSnapshot(): CachedSnapshot {
   if (!raw) {
     return {
       agents: [],
+      providers: [],
+      defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
       threadsByKey: {},
@@ -46,10 +57,21 @@ export function loadSnapshot(): CachedSnapshot {
   }
 
   try {
-    return JSON.parse(raw) as CachedSnapshot;
+    const parsed = JSON.parse(raw) as Partial<CachedSnapshot>;
+    return {
+      agents: parsed.agents ?? [],
+      providers: parsed.providers ?? [],
+      defaultProvider: parsed.defaultProvider ?? DEFAULT_CHAT_PROVIDER,
+      models: parsed.models ?? [],
+      sessionsByAgent: parsed.sessionsByAgent ?? {},
+      threadsByKey: parsed.threadsByKey ?? {},
+      workspace: parsed.workspace,
+    };
   } catch {
     return {
       agents: [],
+      providers: [],
+      defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
       threadsByKey: {},
@@ -86,6 +108,10 @@ export function saveDraft(key: string, value: string): void {
   localStorage.setItem(`${DRAFT_PREFIX}${key}`, value);
 }
 
+export function clearDraft(key: string): void {
+  localStorage.removeItem(`${DRAFT_PREFIX}${key}`);
+}
+
 export function loadUiPreferences(): UiPreferences {
   const raw = localStorage.getItem(UI_PREFERENCES_KEY);
   if (!raw) {
@@ -101,4 +127,26 @@ export function loadUiPreferences(): UiPreferences {
 
 export function saveUiPreferences(preferences: UiPreferences): void {
   localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(preferences));
+}
+
+export function loadSessionNotificationAcks(): SessionNotificationAcks {
+  const raw = localStorage.getItem(SESSION_NOTIFICATION_ACKS_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return normalizeSessionNotificationAcks(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+export function saveSessionNotificationAcks(
+  acknowledgements: SessionNotificationAcks
+): void {
+  localStorage.setItem(
+    SESSION_NOTIFICATION_ACKS_KEY,
+    JSON.stringify(acknowledgements)
+  );
 }

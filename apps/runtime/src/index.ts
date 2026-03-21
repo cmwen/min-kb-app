@@ -3,8 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type HttpBindings, serve } from "@hono/node-server";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
-import { CopilotRuntimeService } from "@min-kb-app/copilot-runtime";
+import { ChatRuntimeService } from "@min-kb-app/copilot-runtime";
 import {
+  deleteSession as deleteChatSession,
   getAgentById,
   getSession,
   listAgents,
@@ -12,6 +13,7 @@ import {
   listSessions,
   listSkillsForAgent,
   ORCHESTRATOR_AGENT_ID,
+  recordSessionLlmUsage,
   resolveWorkspace,
   saveChatTurn,
   sessionIdFromTitle,
@@ -20,7 +22,10 @@ import {
 import type {
   ChatRequest,
   ChatResponse,
+  MemoryAnalysisEntryChange,
   MemoryAnalysisRequest,
+  MemoryEntry,
+  MemoryTier,
   OrchestratorDelegateRequest,
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
@@ -39,7 +44,10 @@ import {
 import { type Context, Hono } from "hono";
 import {
   buildMemoryAnalysisPrompt,
+  buildMemoryAnalysisRuntimeConfig,
   isMemorySkillName,
+  parseMemoryAnalysisMarkdown,
+  resolveMemoryAnalysisModel,
   TmuxOrchestratorService,
 } from "./orchestrator.js";
 
@@ -52,8 +60,16 @@ if (collidingAgent) {
   );
 }
 
-const runtime = new CopilotRuntimeService(workspace);
-const orchestrator = new TmuxOrchestratorService(workspace, defaultProjectPath);
+const runtime = new ChatRuntimeService(workspace);
+const orchestrator = new TmuxOrchestratorService(
+  workspace,
+  defaultProjectPath,
+  undefined,
+  async (modelId) => {
+    const models = await runtime.listModels();
+    return models.find((model) => model.id === modelId);
+  }
+);
 const app = new Hono<{ Bindings: HttpBindings }>();
 const port = Number(process.env.MIN_KB_APP_PORT ?? 8787);
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -75,7 +91,7 @@ app.get("/api/workspace", async (context) => {
 });
 
 app.get("/api/models", async (context) => {
-  return context.json(await runtime.listModels());
+  return context.json(await runtime.listModelCatalog());
 });
 
 app.get("/api/agents", async (context) => {
@@ -124,6 +140,49 @@ app.get("/api/agents/:agentId/sessions/:sessionId", async (context) => {
   }
 
   return context.json(await getSession(workspace, agentId, sessionId));
+});
+
+app.get(
+  "/api/agents/:agentId/sessions/:sessionId/attachments/:attachmentId",
+  async (context) => {
+    const agentId = context.req.param("agentId");
+    const sessionId = context.req.param("sessionId");
+    const attachmentId = context.req.param("attachmentId");
+    const thread = await getSession(workspace, agentId, sessionId);
+    const attachment = thread.turns
+      .map((turn) => turn.attachment)
+      .find((candidate) => candidate?.attachmentId === attachmentId);
+    if (!attachment) {
+      return context.json({ error: "Attachment not found." }, 404);
+    }
+
+    const attachmentPath = path.join(
+      workspace.storeRoot,
+      attachment.relativePath
+    );
+    const content = await fs.readFile(attachmentPath);
+    return new Response(content, {
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition": `${
+          attachment.mediaType === "image" ? "inline" : "attachment"
+        }; filename="${attachment.name.replaceAll('"', "")}"`,
+        "content-type": attachment.contentType,
+      },
+    });
+  }
+);
+
+app.delete("/api/agents/:agentId/sessions/:sessionId", async (context) => {
+  const agentId = context.req.param("agentId");
+  const sessionId = context.req.param("sessionId");
+  if (agentId === ORCHESTRATOR_AGENT_ID) {
+    await orchestrator.deleteSession(sessionId);
+    return context.json({ ok: true });
+  }
+
+  await deleteChatSession(workspace, agentId, sessionId);
+  return context.json({ ok: true });
 });
 
 app.post(
@@ -223,7 +282,7 @@ app.post("/api/orchestrator/sessions/:sessionId/jobs", async (context) => {
     (await context.req.json()) satisfies OrchestratorDelegateRequest
   );
   return context.json(
-    await orchestrator.delegate(context.req.param("sessionId"), request.prompt)
+    await orchestrator.delegate(context.req.param("sessionId"), request)
   );
 });
 
@@ -245,6 +304,24 @@ app.post("/api/orchestrator/sessions/:sessionId/cancel", async (context) => {
     await orchestrator.cancelJob(context.req.param("sessionId"))
   );
 });
+
+app.post("/api/orchestrator/sessions/:sessionId/restart", async (context) => {
+  return context.json(
+    await orchestrator.restartSession(context.req.param("sessionId"))
+  );
+});
+
+app.delete(
+  "/api/orchestrator/sessions/:sessionId/jobs/:jobId",
+  async (context) => {
+    return context.json(
+      await orchestrator.deleteQueuedJob(
+        context.req.param("sessionId"),
+        context.req.param("jobId")
+      )
+    );
+  }
+);
 
 app.get("/api/orchestrator/sessions/:sessionId/stream", async (context) => {
   return streamOrchestratorTerminal(context, context.req.param("sessionId"));
@@ -268,8 +345,13 @@ async function runChatFlow(
   request: ChatRequest,
   forcedSessionId?: string
 ): Promise<ChatResponse> {
+  if (!request.prompt.trim() && !request.attachment) {
+    throw new Error("Provide a prompt or attach a file before sending.");
+  }
   const createdAt = new Date().toISOString();
-  const title = request.title ?? createSessionTitle(request.prompt);
+  const title =
+    request.title ??
+    createSessionTitle(request.prompt, request.attachment?.name);
   const sessionId =
     forcedSessionId ??
     request.sessionId ??
@@ -279,30 +361,54 @@ async function runChatFlow(
     sessionId,
     title,
     sender: "user",
-    bodyMarkdown: request.prompt,
+    bodyMarkdown: buildUserTurnMarkdown(
+      request.prompt,
+      request.attachment?.name
+    ),
     createdAt,
     runtimeConfig: request.config,
+    attachment: request.attachment,
   });
+  const userTurn = userThread.turns.at(-1);
+  const prompt = buildPromptWithAttachmentContext(
+    workspace.storeRoot,
+    request.prompt,
+    userTurn?.attachment
+  );
 
-  const assistantText = await runtime.sendMessage({
+  const runtimeResult = await runtime.sendMessage({
     agentId,
     sessionId,
-    prompt: request.prompt,
+    prompt,
     config: request.config,
+    conversation: userThread.turns.slice(0, -1).map((turn) => ({
+      sender: turn.sender,
+      bodyMarkdown: turn.bodyMarkdown,
+    })),
   });
 
   const summary =
-    userThread.turnCount <= 1 ? buildSummary(title, request.prompt) : undefined;
+    userThread.turnCount <= 1
+      ? buildSummary(title, request.prompt, request.attachment?.name)
+      : undefined;
   const updatedThread = await saveChatTurn(workspace, {
     agentId,
     sessionId,
     title,
     sender: "assistant",
-    bodyMarkdown: assistantText,
+    bodyMarkdown: runtimeResult.assistantText,
     createdAt: new Date().toISOString(),
     summary,
     runtimeConfig: request.config,
   });
+  if (runtimeResult.llmStats) {
+    await recordSessionLlmUsage(
+      workspace,
+      agentId,
+      sessionId,
+      runtimeResult.llmStats
+    );
+  }
 
   const assistantTurn = updatedThread.turns.at(-1);
   if (!assistantTurn) {
@@ -330,50 +436,207 @@ async function runMemoryAnalysisFlow(
   }
 
   const skills = await listSkillsForAgent(workspace, agentId);
-  const memorySkillNames = skills
-    .map((skill) => skill.name)
-    .filter((skillName) => isMemorySkillName(skillName));
-  const baseConfig = thread.runtimeConfig ?? request.config ?? undefined;
-  const disabledSkills = (baseConfig?.disabledSkills ?? []).filter(
-    (skillName) => !memorySkillNames.includes(skillName)
+  const availableSkillNames = skills.map((skill) => skill.name);
+  const memorySkillNames = availableSkillNames.filter((skillName) =>
+    isMemorySkillName(skillName)
   );
-  const analysisConfig = {
-    ...baseConfig,
-    model: "gpt-4.1",
-    disabledSkills,
-  };
+  const baseConfig = thread.runtimeConfig ?? request.config ?? undefined;
+  const model = resolveMemoryAnalysisModel(request.model);
+  const analysisConfig = buildMemoryAnalysisRuntimeConfig({
+    availableSkillNames,
+    baseConfig,
+    model,
+  });
+  const memoryEntriesBefore = await listMemoryEntries(workspace, { agentId });
 
-  const markdown = await runtime.sendMessage({
+  const result = await runtime.sendMessage({
     agentId,
     sessionId: `${sessionId}-memory-${Date.now()}`,
     prompt: buildMemoryAnalysisPrompt(thread, memorySkillNames),
     config: analysisConfig,
   });
+  const memoryEntriesAfter = await listMemoryEntries(workspace, { agentId });
+  const analysisByTier = parseMemoryAnalysisMarkdown(result.assistantText);
 
   return {
-    markdown,
-    model: "gpt-4.1",
-    enabledSkillNames: memorySkillNames,
+    markdown: result.assistantText,
+    model,
+    configuredMemorySkillNames: memorySkillNames,
+    enabledSkillNames:
+      result.sessionDiagnostics?.loadedSkills
+        .filter((skill) => skill.enabled)
+        .map((skill) => skill.name) ?? [],
+    loadedSkillNames:
+      result.sessionDiagnostics?.loadedSkills.map((skill) => skill.name) ?? [],
+    invokedSkillNames: result.sessionDiagnostics?.invokedSkills ?? [],
+    toolExecutions: result.sessionDiagnostics?.toolExecutions ?? [],
+    reportedLoadedSkills:
+      result.sessionDiagnostics?.reportedLoadedSkills ?? false,
+    analysisByTier,
+    memoryChanges: summarizeMemoryChanges(
+      memoryEntriesBefore,
+      memoryEntriesAfter
+    ),
   };
 }
 
-function createSessionTitle(prompt: string): string {
-  const words = prompt.trim().split(/\s+/).slice(0, 6);
-  return words.join(" ") || "New session";
+function createSessionTitle(prompt: string, attachmentName?: string): string {
+  const words = prompt.trim().split(/\s+/).filter(Boolean).slice(0, 6);
+  if (words.length > 0) {
+    return words.join(" ");
+  }
+  if (attachmentName) {
+    return `Attachment ${attachmentName}`;
+  }
+  return "New session";
 }
 
-function buildSummary(title: string, prompt: string): string {
+function buildSummary(
+  title: string,
+  prompt: string,
+  attachmentName?: string
+): string {
   const normalizedPrompt = prompt.trim().replace(/\s+/g, " ");
   const titleWordCount = title.trim().split(/\s+/).filter(Boolean).length;
   const remainder = normalizedPrompt
     .split(/\s+/)
     .slice(titleWordCount)
     .join(" ");
-  return remainder.slice(0, 120) || "Started from the initial prompt.";
+  return (
+    remainder.slice(0, 120) ||
+    (attachmentName
+      ? `Started from the attached file ${attachmentName}.`
+      : "Started from the initial prompt.")
+  );
+}
+
+function buildUserTurnMarkdown(
+  prompt: string,
+  attachmentName?: string
+): string {
+  const trimmedPrompt = prompt.trim();
+  if (!attachmentName) {
+    return trimmedPrompt;
+  }
+  if (!trimmedPrompt) {
+    return `Attached file: \`${attachmentName}\``;
+  }
+  return `${trimmedPrompt}\n\nAttached file: \`${attachmentName}\``;
+}
+
+function buildPromptWithAttachmentContext(
+  storeRoot: string,
+  prompt: string,
+  attachment?: {
+    name: string;
+    contentType: string;
+    size: number;
+    relativePath: string;
+  }
+): string {
+  const trimmedPrompt = prompt.trim();
+  if (!attachment) {
+    return trimmedPrompt;
+  }
+
+  const attachmentPath = path.join(storeRoot, attachment.relativePath);
+  const userPrompt =
+    trimmedPrompt ||
+    "Inspect the attached file and help the user with the next relevant step.";
+
+  return [
+    "The user attached a file to this request.",
+    `Attachment name: ${attachment.name}`,
+    `Attachment type: ${attachment.contentType}`,
+    `Attachment size: ${attachment.size} bytes`,
+    `Attachment path: ${attachmentPath}`,
+    "Use the attachment as part of your response. If you need the file contents, inspect it from disk using the available tools.",
+    "",
+    "User request:",
+    userPrompt,
+  ].join("\n");
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function summarizeMemoryChanges(
+  before: MemoryEntry[],
+  after: MemoryEntry[]
+): {
+  working: MemoryAnalysisEntryChange[];
+  shortTerm: MemoryAnalysisEntryChange[];
+  longTerm: MemoryAnalysisEntryChange[];
+} {
+  const byPathBefore = new Map(before.map((entry) => [entry.path, entry]));
+  const changes = {
+    working: [] as MemoryAnalysisEntryChange[],
+    shortTerm: [] as MemoryAnalysisEntryChange[],
+    longTerm: [] as MemoryAnalysisEntryChange[],
+  };
+
+  for (const entry of after) {
+    const tier = classifyMemoryTier(entry);
+    if (!tier) {
+      continue;
+    }
+
+    const previous = byPathBefore.get(entry.path);
+    if (!previous) {
+      changes[tierKey(tier)].push(buildMemoryChange(entry, tier, "added"));
+      continue;
+    }
+
+    if (
+      previous.updatedAt !== entry.updatedAt ||
+      previous.title !== entry.title ||
+      previous.id !== entry.id
+    ) {
+      changes[tierKey(tier)].push(buildMemoryChange(entry, tier, "updated"));
+    }
+  }
+
+  return changes;
+}
+
+function buildMemoryChange(
+  entry: MemoryEntry,
+  tier: MemoryTier,
+  status: "added" | "updated"
+): MemoryAnalysisEntryChange {
+  return {
+    id: entry.id,
+    title: entry.title,
+    path: entry.path,
+    status,
+    tier,
+    updatedAt: entry.updatedAt,
+  };
+}
+
+function classifyMemoryTier(entry: MemoryEntry): MemoryTier | undefined {
+  const normalizedPath = entry.path.replaceAll("\\", "/");
+  if (normalizedPath.includes("/memory/working/")) {
+    return "working";
+  }
+  if (normalizedPath.includes("/memory/shared/short-term/")) {
+    return "short-term";
+  }
+  if (normalizedPath.includes("/memory/shared/long-term/")) {
+    return "long-term";
+  }
+  return undefined;
+}
+
+function tierKey(tier: MemoryTier): "working" | "shortTerm" | "longTerm" {
+  if (tier === "working") {
+    return "working";
+  }
+  if (tier === "short-term") {
+    return "shortTerm";
+  }
+  return "longTerm";
 }
 
 async function streamOrchestratorTerminal(

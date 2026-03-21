@@ -12,11 +12,13 @@ const MODELS: ModelDescriptor[] = [
   {
     id: "gpt-5",
     displayName: "GPT-5",
+    runtimeProvider: "copilot",
     supportedReasoningEfforts: ["medium", "high"],
   },
   {
     id: "claude-sonnet-4.6",
     displayName: "Claude Sonnet 4.6",
+    runtimeProvider: "copilot",
     provider: "Anthropic",
     supportedReasoningEfforts: [],
   },

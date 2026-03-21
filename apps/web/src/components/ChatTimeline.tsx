@@ -1,5 +1,7 @@
 import type { ChatSession } from "@min-kb-app/shared";
 import ReactMarkdown from "react-markdown";
+import { API_ROOT } from "../api";
+import { formatFileSize } from "../attachments";
 
 interface ChatTimelineProps {
   thread?: ChatSession;
@@ -21,6 +23,8 @@ export function ChatTimeline(props: ChatTimelineProps) {
     );
   }
 
+  const thread = props.thread;
+
   return (
     <section
       className="chat-timeline"
@@ -38,6 +42,42 @@ export function ChatTimeline(props: ChatTimelineProps) {
             <time>{new Date(turn.createdAt).toLocaleString()}</time>
           </header>
           <ReactMarkdown>{turn.bodyMarkdown}</ReactMarkdown>
+          {turn.attachment ? (
+            <div className="message-attachment">
+              {turn.attachment.mediaType === "image" ? (
+                <a
+                  href={`${API_ROOT}/api/agents/${thread.agentId}/sessions/${thread.sessionId}/attachments/${turn.attachment.attachmentId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img
+                    src={`${API_ROOT}/api/agents/${thread.agentId}/sessions/${thread.sessionId}/attachments/${turn.attachment.attachmentId}`}
+                    alt={turn.attachment.name}
+                  />
+                </a>
+              ) : null}
+              <a
+                className="message-attachment-link"
+                href={`${API_ROOT}/api/agents/${thread.agentId}/sessions/${thread.sessionId}/attachments/${turn.attachment.attachmentId}`}
+                target={
+                  turn.attachment.mediaType === "image" ? "_blank" : undefined
+                }
+                rel={
+                  turn.attachment.mediaType === "image"
+                    ? "noreferrer"
+                    : undefined
+                }
+                download={
+                  turn.attachment.mediaType === "image"
+                    ? undefined
+                    : turn.attachment.name
+                }
+              >
+                <strong>{turn.attachment.name}</strong>
+                <span>{formatFileSize(turn.attachment.size)}</span>
+              </a>
+            </div>
+          ) : null}
         </article>
       ))}
       {props.pending ? (

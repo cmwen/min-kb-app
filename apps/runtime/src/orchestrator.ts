@@ -3,9 +3,13 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  accumulatePremiumUsageTotals,
   buildOrchestratorWindowName,
   createOrchestratorJob,
   createOrchestratorSession,
+  deleteOrchestratorJob,
+  deleteOrchestratorSession,
+  discoverCopilotCustomAgents,
   getOrchestratorSession,
   getOrchestratorTerminalSize,
   listOrchestratorSessions,
@@ -14,6 +18,7 @@ import {
   orchestratorHistoryRoot,
   pathExists,
   readOrchestratorTerminalChunk,
+  resetOrchestratorTerminalLog,
   toOrchestratorChatSummary,
   updateOrchestratorJob,
   updateOrchestratorSession,
@@ -21,10 +26,15 @@ import {
 } from "@min-kb-app/min-kb-store";
 import {
   type AgentSummary,
+  type ChatRuntimeConfig,
   type ChatSession,
   type ChatSessionSummary,
   DEFAULT_CHAT_MODEL,
+  DEFAULT_CHAT_PROVIDER,
+  type ModelDescriptor,
   type OrchestratorCapabilities,
+  type OrchestratorDelegateRequest,
+  type OrchestratorJob,
   type OrchestratorSession,
   type OrchestratorSessionCreateRequest,
   type OrchestratorSessionUpdateRequest,
@@ -39,6 +49,9 @@ export const DEFAULT_TMUX_SESSION_NAME =
 const DIRECT_PROMPT_LIMIT = 800;
 const DIRECT_PROMPT_LINE_LIMIT = 12;
 const CANCELLED_JOB_EXIT_CODE = -1;
+const ORCHESTRATOR_PROMPT_FILENAME = "prompt.txt";
+const ORCHESTRATOR_SCRIPT_FILENAME = "run.sh";
+export const DEFAULT_MEMORY_ANALYSIS_MODEL = "gpt-5-mini";
 
 interface ReconciledStatus {
   status: OrchestratorSession["status"];
@@ -50,7 +63,10 @@ export class TmuxOrchestratorService {
   constructor(
     private readonly workspace: MinKbWorkspace,
     private readonly defaultProjectPath: string,
-    private readonly tmuxSessionName = DEFAULT_TMUX_SESSION_NAME
+    private readonly tmuxSessionName = DEFAULT_TMUX_SESSION_NAME,
+    private readonly resolveModelDescriptor?: (
+      modelId: string
+    ) => Promise<ModelDescriptor | undefined>
   ) {}
 
   async getCapabilities(): Promise<OrchestratorCapabilities> {
@@ -134,6 +150,15 @@ export class TmuxOrchestratorService {
     const projectPath = path.resolve(request.projectPath);
     const model = request.model.trim() || DEFAULT_CHAT_MODEL;
     await this.assertProjectPath(projectPath);
+    const availableCustomAgents =
+      await discoverCopilotCustomAgents(projectPath);
+    const selectedCustomAgentId = this.resolveSelectedCustomAgentId(
+      {
+        availableCustomAgents,
+        selectedCustomAgentId: undefined,
+      },
+      request.selectedCustomAgentId
+    );
     const title =
       request.title?.trim() ||
       request.projectPurpose.trim() ||
@@ -160,6 +185,8 @@ export class TmuxOrchestratorService {
       projectPath,
       projectPurpose: request.projectPurpose,
       model,
+      availableCustomAgents,
+      selectedCustomAgentId,
       tmuxSessionName: this.tmuxSessionName,
       tmuxWindowName,
       tmuxPaneId: paneId,
@@ -178,6 +205,10 @@ export class TmuxOrchestratorService {
     const session = await this.getSession(sessionId);
     const title = request.title;
     const model = request.model;
+    const selectedCustomAgentId = this.resolveSelectedCustomAgentId(
+      session,
+      request.selectedCustomAgentId
+    );
     const tmuxWindowName = buildOrchestratorWindowName(
       title,
       session.projectPath,
@@ -186,6 +217,7 @@ export class TmuxOrchestratorService {
     const hasChanges =
       title !== session.title ||
       model !== session.model ||
+      selectedCustomAgentId !== session.selectedCustomAgentId ||
       tmuxWindowName !== session.tmuxWindowName;
     if (!hasChanges) {
       return session;
@@ -206,6 +238,7 @@ export class TmuxOrchestratorService {
     await updateOrchestratorSession(this.workspace, sessionId, {
       title,
       model,
+      selectedCustomAgentId,
       tmuxWindowName,
     });
     return this.getSession(sessionId);
@@ -213,61 +246,60 @@ export class TmuxOrchestratorService {
 
   async delegate(
     sessionId: string,
-    prompt: string
+    request: string | OrchestratorDelegateRequest
   ): Promise<OrchestratorSession> {
     await this.assertCapabilities();
     const session = await this.getSession(sessionId);
-    if (session.status === "running" && session.activeJobId) {
+    const delegatedPrompt =
+      typeof request === "string" ? request : request.prompt;
+    const attachment =
+      typeof request === "string" ? undefined : request.attachment;
+    if (!delegatedPrompt.trim() && !attachment) {
       throw new Error(
-        `Orchestrator session ${sessionId} is already running job ${session.activeJobId}.`
+        "Provide a prompt or attach a file before delegating work."
       );
     }
-    const promptMode = shouldMaterializePrompt(prompt) ? "file" : "inline";
+    const customAgentId = this.resolveSelectedCustomAgentId(
+      session,
+      typeof request === "string" ? undefined : request.customAgentId
+    );
+    const promptMode =
+      attachment || shouldMaterializePrompt(delegatedPrompt)
+        ? "file"
+        : "inline";
+    const premiumUsage = await this.estimatePremiumUsage(session.model);
     const job = await createOrchestratorJob(this.workspace, sessionId, {
-      promptPreview: prompt.trim().slice(0, 160) || "Delegated prompt",
+      promptPreview:
+        delegatedPrompt.trim().slice(0, 160) ||
+        attachment?.name ||
+        "Delegated prompt",
       promptMode,
+      attachment,
+      customAgentId,
+      premiumUsage,
     });
-
-    let promptPath: string | undefined;
-    if (promptMode === "file") {
-      promptPath = path.join(job.jobDirectory, "prompt.txt");
-      await fs.writeFile(promptPath, ensureTrailingNewline(prompt), "utf8");
-      await updateOrchestratorJob(this.workspace, sessionId, job.jobId, {
-        promptPath,
+    if (customAgentId !== session.selectedCustomAgentId) {
+      await updateOrchestratorSession(this.workspace, sessionId, {
+        selectedCustomAgentId: customAgentId,
       });
     }
+    const preparedJob = await this.prepareJobArtifacts(
+      {
+        ...session,
+        selectedCustomAgentId: customAgentId,
+      },
+      job,
+      delegatedPrompt
+    );
+    if (session.status === "running" && session.activeJobId) {
+      await updateOrchestratorSession(this.workspace, sessionId, {
+        lastJobId: preparedJob.jobId,
+        status: "running",
+      });
+      return this.getSession(sessionId);
+    }
 
-    const donePath = path.join(job.jobDirectory, "DONE.json");
-    const scriptPath = path.join(job.jobDirectory, "run.sh");
-    const script = buildDelegationShellScript({
-      jobId: job.jobId,
-      donePath,
-      model: session.model,
-      prompt,
-      promptPath,
-      promptMode,
-      projectPurpose: session.projectPurpose,
-      tmuxTarget: session.tmuxPaneId,
-    });
-    await fs.writeFile(scriptPath, script, "utf8");
-    await fs.chmod(scriptPath, 0o755);
-    await this.runTmux([
-      "send-keys",
-      "-t",
-      session.tmuxPaneId,
-      `bash ${shellQuote(scriptPath)}`,
-      "Enter",
-    ]);
-    await updateOrchestratorJob(this.workspace, sessionId, job.jobId, {
-      promptPath,
-      status: "running",
-      startedAt: new Date().toISOString(),
-    });
-    await updateOrchestratorSession(this.workspace, sessionId, {
-      activeJobId: job.jobId,
-      lastJobId: job.jobId,
-      status: "running",
-    });
+    await this.startPreparedJob(session, preparedJob);
     return this.getSession(sessionId);
   }
 
@@ -309,14 +341,7 @@ export class TmuxOrchestratorService {
     }
 
     const completedAt = new Date().toISOString();
-    const paneExists = await this.tmuxPaneExists(session.tmuxPaneId);
-    if (paneExists) {
-      const windowId = await this.readTmuxValue(
-        session.tmuxPaneId,
-        "#{window_id}"
-      );
-      await this.runTmux(["kill-window", "-t", windowId]);
-    }
+    await this.killWindowForPane(session.tmuxPaneId);
 
     try {
       const nextPaneId = await this.createWindow({
@@ -347,6 +372,90 @@ export class TmuxOrchestratorService {
       throw error;
     }
 
+    return this.getSession(sessionId);
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    await this.killWindowForPane(session.tmuxPaneId);
+    await deleteOrchestratorSession(this.workspace, sessionId);
+  }
+
+  async restartSession(sessionId: string): Promise<OrchestratorSession> {
+    await this.assertCapabilities();
+    const session = await getOrchestratorSession(this.workspace, sessionId);
+    const runningJob =
+      session.jobs.find((job) => job.jobId === session.activeJobId) ??
+      session.jobs.find((job) => job.status === "running");
+    const completedAt = runningJob ? new Date().toISOString() : undefined;
+
+    await this.killWindowForPane(session.tmuxPaneId);
+    await resetOrchestratorTerminalLog(this.workspace, sessionId);
+
+    try {
+      const nextPaneId = await this.createWindow({
+        projectPath: session.projectPath,
+        tmuxWindowName: session.tmuxWindowName,
+        startedAt: session.startedAt,
+        title: session.title,
+        sessionId: session.sessionId,
+      });
+
+      if (runningJob && completedAt) {
+        await this.finalizeCancelledJob(
+          session.sessionId,
+          runningJob.jobId,
+          completedAt,
+          {
+            tmuxPaneId: nextPaneId,
+            status: "failed",
+          }
+        );
+      } else {
+        await updateOrchestratorSession(this.workspace, session.sessionId, {
+          tmuxPaneId: nextPaneId,
+          activeJobId: undefined,
+          status: "idle",
+        });
+      }
+    } catch (error) {
+      if (runningJob && completedAt) {
+        await this.finalizeCancelledJob(
+          session.sessionId,
+          runningJob.jobId,
+          completedAt,
+          {
+            status: "missing",
+          }
+        );
+      } else {
+        await updateOrchestratorSession(this.workspace, session.sessionId, {
+          activeJobId: undefined,
+          status: "missing",
+        });
+      }
+      throw error;
+    }
+
+    return this.getSession(sessionId);
+  }
+
+  async deleteQueuedJob(
+    sessionId: string,
+    jobId: string
+  ): Promise<OrchestratorSession> {
+    const session = await this.getSession(sessionId);
+    const job = session.jobs.find((item) => item.jobId === jobId);
+    if (!job) {
+      throw new Error(`Orchestrator session ${sessionId} has no job ${jobId}.`);
+    }
+    if (job.status !== "queued") {
+      throw new Error(
+        `Only queued jobs can be deleted. Received ${job.status}.`
+      );
+    }
+
+    await deleteOrchestratorJob(this.workspace, sessionId, jobId);
     return this.getSession(sessionId);
   }
 
@@ -436,6 +545,14 @@ export class TmuxOrchestratorService {
     session: OrchestratorSession
   ): Promise<OrchestratorSession> {
     const paneExists = await this.tmuxPaneExists(session.tmuxPaneId);
+    if (paneExists) {
+      const queuedJob = getNextQueuedJob(session.jobs);
+      if (!session.jobs.some((job) => job.status === "running") && queuedJob) {
+        await this.startPreparedJob(session, queuedJob);
+        return getOrchestratorSession(this.workspace, session.sessionId);
+      }
+    }
+
     const next = deriveSessionStatus(session, paneExists);
     const statusChanged =
       next.status !== session.status ||
@@ -475,6 +592,15 @@ export class TmuxOrchestratorService {
 
   private async runTmux(args: string[]) {
     return execFile("tmux", args, { encoding: "utf8" });
+  }
+
+  private async killWindowForPane(paneId: string): Promise<void> {
+    const paneExists = await this.tmuxPaneExists(paneId);
+    if (!paneExists) {
+      return;
+    }
+    const windowId = await this.readTmuxValue(paneId, "#{window_id}");
+    await this.runTmux(["kill-window", "-t", windowId]);
   }
 
   private async assertCapabilities(): Promise<void> {
@@ -540,6 +666,139 @@ export class TmuxOrchestratorService {
       lastJobId: jobId,
     });
   }
+
+  private async prepareJobArtifacts(
+    session: OrchestratorSession,
+    job: OrchestratorJob,
+    prompt: string
+  ): Promise<OrchestratorJob> {
+    const effectivePrompt = buildPromptWithAttachmentContext(
+      this.workspace.storeRoot,
+      prompt,
+      job.attachment
+    );
+    let promptPath = job.promptPath;
+    if (job.promptMode === "file") {
+      promptPath = path.join(job.jobDirectory, ORCHESTRATOR_PROMPT_FILENAME);
+      await fs.writeFile(
+        promptPath,
+        ensureTrailingNewline(effectivePrompt),
+        "utf8"
+      );
+      await updateOrchestratorJob(
+        this.workspace,
+        session.sessionId,
+        job.jobId,
+        {
+          promptPath,
+        }
+      );
+    }
+
+    const donePath = path.join(job.jobDirectory, "DONE.json");
+    const scriptPath = path.join(
+      job.jobDirectory,
+      ORCHESTRATOR_SCRIPT_FILENAME
+    );
+    const script = buildDelegationShellScript({
+      jobId: job.jobId,
+      donePath,
+      model: session.model,
+      prompt: effectivePrompt,
+      promptPath,
+      promptMode: job.promptMode,
+      projectPurpose: session.projectPurpose,
+      customAgentId: job.customAgentId,
+      tmuxTarget: session.tmuxPaneId,
+    });
+    await fs.writeFile(scriptPath, script, "utf8");
+    await fs.chmod(scriptPath, 0o755);
+
+    return {
+      ...job,
+      promptPath,
+    };
+  }
+
+  private async startPreparedJob(
+    session: Pick<
+      OrchestratorSession,
+      "sessionId" | "tmuxPaneId" | "premiumUsage"
+    >,
+    job: Pick<OrchestratorJob, "jobId" | "jobDirectory" | "premiumUsage">
+  ): Promise<void> {
+    const scriptPath = path.join(
+      job.jobDirectory,
+      ORCHESTRATOR_SCRIPT_FILENAME
+    );
+    await this.runTmux([
+      "send-keys",
+      "-t",
+      session.tmuxPaneId,
+      `bash ${shellQuote(scriptPath)}`,
+      "Enter",
+    ]);
+    await updateOrchestratorJob(this.workspace, session.sessionId, job.jobId, {
+      status: "running",
+      startedAt: new Date().toISOString(),
+    });
+    await updateOrchestratorSession(this.workspace, session.sessionId, {
+      activeJobId: job.jobId,
+      lastJobId: job.jobId,
+      premiumUsage: accumulatePremiumUsageTotals(
+        session.premiumUsage,
+        job.premiumUsage
+      ),
+      status: "running",
+    });
+  }
+
+  private async estimatePremiumUsage(model: string) {
+    if (!this.resolveModelDescriptor) {
+      return undefined;
+    }
+
+    const descriptor = await this.resolveModelDescriptor(model);
+    if (!descriptor) {
+      return undefined;
+    }
+
+    return {
+      source: "tmux-estimate" as const,
+      model,
+      premiumRequestUnits: descriptor.premiumRequestMultiplier ?? 0,
+      billingMultiplier: descriptor.premiumRequestMultiplier,
+      recordedAt: new Date().toISOString(),
+    };
+  }
+
+  private resolveSelectedCustomAgentId(
+    session: Pick<
+      OrchestratorSession,
+      "availableCustomAgents" | "selectedCustomAgentId"
+    >,
+    requestedCustomAgentId: string | null | undefined
+  ): string | undefined {
+    if (requestedCustomAgentId === undefined) {
+      return session.selectedCustomAgentId;
+    }
+    if (requestedCustomAgentId === null) {
+      return undefined;
+    }
+    const selected = requestedCustomAgentId.trim();
+    if (!selected) {
+      return undefined;
+    }
+    const exists = session.availableCustomAgents.some(
+      (agent) => agent.id === selected
+    );
+    if (!exists) {
+      throw new Error(
+        `Unknown Copilot custom agent for this session: ${requestedCustomAgentId}`
+      );
+    }
+    return selected;
+  }
 }
 
 export function deriveSessionStatus(
@@ -566,6 +825,15 @@ export function deriveSessionStatus(
     };
   }
 
+  const queuedJob = getNextQueuedJob(session.jobs);
+  if (queuedJob) {
+    return {
+      status: "running",
+      activeJobId: undefined,
+      lastJobId: queuedJob.jobId,
+    };
+  }
+
   const latestJob = session.jobs[0];
   if (!latestJob) {
     return {
@@ -580,6 +848,16 @@ export function deriveSessionStatus(
     activeJobId: undefined,
     lastJobId: latestJob.jobId,
   };
+}
+
+function getNextQueuedJob(
+  jobs: readonly OrchestratorJob[]
+): OrchestratorJob | undefined {
+  return [...jobs]
+    .filter((job) => job.status === "queued")
+    .sort((left, right) =>
+      left.submittedAt.localeCompare(right.submittedAt)
+    )[0];
 }
 
 export function shouldMaterializePrompt(prompt: string): boolean {
@@ -597,6 +875,7 @@ export function buildDelegationShellScript(input: {
   promptMode: "inline" | "file";
   promptPath?: string;
   projectPurpose: string;
+  customAgentId?: string;
   tmuxTarget: string;
 }): string {
   const command = buildCopilotCommand({
@@ -605,6 +884,7 @@ export function buildDelegationShellScript(input: {
     promptMode: input.promptMode,
     promptPath: input.promptPath,
     projectPurpose: input.projectPurpose,
+    customAgentId: input.customAgentId,
   });
   return [
     "#!/usr/bin/env bash",
@@ -619,13 +899,19 @@ export function buildDelegationShellScript(input: {
     "status=$?",
     'completed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")',
     'printf \'\\n[min-kb-app] Job %s finished with exit code %s at %s\\n\' "$job_id" "$status" "$completed_at"',
+    'if [ "$status" -eq 0 ]; then',
+    '  completion_message="min-kb-app: job $job_id completed successfully"',
+    "else",
+    '  completion_message="min-kb-app: job $job_id failed (exit $status)"',
+    "fi",
+    'printf \'[min-kb-app] Notification: %s at %s\\n\' "$completion_message" "$completed_at"',
     'cat > "$done_path" <<EOF',
     "{",
     '  "exitCode": $status,',
     '  "completedAt": "$completed_at"',
     "}",
     "EOF",
-    'tmux display-message -t "$tmux_target" "min-kb-app: job $job_id finished (exit $status)"',
+    'tmux display-message -d 15000 -t "$tmux_target" "$completion_message"',
     "printf '\\a'",
     "exit 0",
     "",
@@ -638,7 +924,11 @@ export function buildCopilotCommand(input: {
   promptMode: "inline" | "file";
   promptPath?: string;
   projectPurpose: string;
+  customAgentId?: string;
 }): string {
+  const agentFlag = input.customAgentId
+    ? ` --agent ${shellQuote(input.customAgentId)}`
+    : "";
   if (input.promptMode === "file") {
     if (!input.promptPath) {
       throw new Error("Prompt file mode requires a promptPath.");
@@ -648,17 +938,70 @@ export function buildCopilotCommand(input: {
       `Task file: ${input.promptPath}`,
       `Project purpose: ${input.projectPurpose}`,
     ].join("\n");
-    return `copilot --model ${shellQuote(input.model)} --yolo -p ${shellQuote(
+    return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo -p ${shellQuote(
       delegatedPrompt
     )}`;
   }
-  return `copilot --model ${shellQuote(input.model)} --yolo -p ${shellQuote(
+  return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo -p ${shellQuote(
     input.prompt
   )}`;
 }
 
+function buildPromptWithAttachmentContext(
+  storeRoot: string,
+  prompt: string,
+  attachment?: {
+    name: string;
+    contentType: string;
+    size: number;
+    relativePath: string;
+  }
+): string {
+  const trimmedPrompt = prompt.trim();
+  if (!attachment) {
+    return trimmedPrompt;
+  }
+
+  const attachmentPath = path.join(storeRoot, attachment.relativePath);
+  return [
+    "A file is attached to this delegated task.",
+    `Attachment name: ${attachment.name}`,
+    `Attachment type: ${attachment.contentType}`,
+    `Attachment size: ${attachment.size} bytes`,
+    `Attachment path: ${attachmentPath}`,
+    "Inspect the attachment from disk as part of the work if it is relevant.",
+    "",
+    "Task:",
+    trimmedPrompt ||
+      "Inspect the attached file and complete the most relevant next step in the current project.",
+  ].join("\n");
+}
+
 export function isMemorySkillName(name: string): boolean {
-  return /memory|working-memory|short-term|long-term/i.test(name);
+  return /memory|working[- ]memory|short[- ]term|long[- ]term/i.test(name);
+}
+
+export function resolveMemoryAnalysisModel(model?: string): string {
+  return model?.trim() || DEFAULT_MEMORY_ANALYSIS_MODEL;
+}
+
+export function buildMemoryAnalysisRuntimeConfig(input: {
+  availableSkillNames: string[];
+  baseConfig?: Partial<ChatRuntimeConfig>;
+  model?: string;
+}): ChatRuntimeConfig {
+  const enabledMemorySkillNames =
+    input.availableSkillNames.filter(isMemorySkillName);
+
+  return {
+    provider: input.baseConfig?.provider ?? DEFAULT_CHAT_PROVIDER,
+    model: resolveMemoryAnalysisModel(input.model),
+    reasoningEffort: input.baseConfig?.reasoningEffort,
+    mcpServers: input.baseConfig?.mcpServers ?? {},
+    disabledSkills: input.availableSkillNames.filter(
+      (skillName) => !enabledMemorySkillNames.includes(skillName)
+    ),
+  };
 }
 
 export function buildMemoryAnalysisPrompt(
@@ -674,13 +1017,13 @@ export function buildMemoryAnalysisPrompt(
   const skillSection =
     memorySkillNames.length > 0
       ? `Available memory-related skills:\n${memorySkillNames.map((name) => `- ${name}`).join("\n")}\n`
-      : "No memory-specific skills were detected, so provide recommendations without writing memory.\n";
+      : "No memory-specific skills were detected, so do not attempt memory writes. Instead, explain what should be stored and why.\n";
   return [
     "Review the following chat history and identify only the information worth remembering.",
     "Prefer durable facts, stable preferences, ongoing project context, active decisions, and any near-term context that should stay available.",
     "Use working memory for immediate context, short-term memory for near-future reusable context, and long-term memory for durable facts or preferences.",
-    "If memory-related skills are available, use them to store the right items in the right memory tier.",
-    "Reply in markdown with three sections: Working memory, Short-term memory, and Long-term memory. For each section, list what you captured or recommended and why.",
+    "If memory-related skills are available, invoke them during this analysis run to write or update the right items in the right memory tier instead of only recommending them.",
+    "Reply in markdown with three sections: Working memory, Short-term memory, and Long-term memory. For each section, list what you stored or updated, note any remaining recommendations, and explain why.",
     "",
     skillSection.trim(),
     "",
@@ -691,6 +1034,94 @@ export function buildMemoryAnalysisPrompt(
     "",
     transcript,
   ].join("\n");
+}
+
+export function parseMemoryAnalysisMarkdown(markdown: string): {
+  working: { summary: string; items: string[] };
+  shortTerm: { summary: string; items: string[] };
+  longTerm: { summary: string; items: string[] };
+} {
+  const sections = {
+    working: { summary: "", items: [] as string[] },
+    shortTerm: { summary: "", items: [] as string[] },
+    longTerm: { summary: "", items: [] as string[] },
+  };
+  const headingPattern = /^#{1,6}\s+(.+?)\s*$/gm;
+  const matches = [...markdown.matchAll(headingPattern)];
+
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    if (!match) {
+      continue;
+    }
+    const headingText = match[1];
+    if (!headingText) {
+      continue;
+    }
+    const heading = normalizeMemoryHeading(headingText);
+    if (!heading) {
+      continue;
+    }
+
+    const contentStart = (match.index ?? 0) + match[0].length;
+    const nextMatch = matches[index + 1];
+    const contentEnd =
+      index + 1 < matches.length
+        ? (nextMatch?.index ?? markdown.length)
+        : markdown.length;
+    const content = markdown.slice(contentStart, contentEnd).trim();
+    sections[heading] = summarizeMemorySection(content);
+  }
+
+  return sections;
+}
+
+function normalizeMemoryHeading(
+  heading: string
+): "working" | "shortTerm" | "longTerm" | undefined {
+  const normalized = heading.trim().toLowerCase();
+  if (normalized === "working memory") {
+    return "working";
+  }
+  if (
+    normalized === "short-term memory" ||
+    normalized === "short term memory"
+  ) {
+    return "shortTerm";
+  }
+  if (normalized === "long-term memory" || normalized === "long term memory") {
+    return "longTerm";
+  }
+  return undefined;
+}
+
+function summarizeMemorySection(content: string): {
+  summary: string;
+  items: string[];
+} {
+  if (!content) {
+    return {
+      summary: "",
+      items: [],
+    };
+  }
+
+  const lines = content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const items = lines
+    .filter((line) => /^[-*+]\s+/.test(line))
+    .map((line) => line.replace(/^[-*+]\s+/, "").trim());
+  const summary = lines
+    .filter((line) => !/^[-*+]\s+/.test(line))
+    .join(" ")
+    .trim();
+
+  return {
+    summary,
+    items,
+  };
 }
 
 export function shellQuote(value: string): string {

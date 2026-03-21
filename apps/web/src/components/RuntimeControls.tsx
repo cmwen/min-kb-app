@@ -1,4 +1,5 @@
 import type {
+  ChatProviderDescriptor,
   ChatRuntimeConfig,
   ModelDescriptor,
   ReasoningEffort,
@@ -6,7 +7,12 @@ import type {
   SkillScope,
 } from "@min-kb-app/shared";
 import { useEffect, useRef, useState } from "react";
-import { findModelDescriptor, formatReasoningEffort } from "../model-config";
+import {
+  findModelDescriptor,
+  findProviderDescriptor,
+  formatReasoningEffort,
+  getModelsForProvider,
+} from "../model-config";
 
 const SKILL_SCOPE_ORDER: SkillScope[] = [
   "agent-local",
@@ -23,12 +29,14 @@ const SKILL_SCOPE_LABELS: Record<SkillScope, string> = {
 type RuntimePanelId = "model" | "skills" | "mcp";
 
 interface RuntimeControlsProps {
+  providers: ChatProviderDescriptor[];
   models: ModelDescriptor[];
   visibleModels: ModelDescriptor[];
   skills: SkillDescriptor[];
   config: ChatRuntimeConfig;
   mcpText: string;
   mcpError?: string;
+  onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onReasoningEffortChange: (reasoningEffort?: ReasoningEffort) => void;
   onSkillToggle: (skillName: string) => void;
@@ -38,17 +46,27 @@ interface RuntimeControlsProps {
 export function RuntimeControls(props: RuntimeControlsProps) {
   const [openPanel, setOpenPanel] = useState<RuntimePanelId | undefined>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const selectedModel = findModelDescriptor(props.models, props.config.model);
+  const selectedProvider = findProviderDescriptor(
+    props.providers,
+    props.config.provider
+  );
+  const selectedModel = findModelDescriptor(
+    props.models,
+    props.config.model,
+    props.config.provider
+  );
   const modelOptions =
-    props.visibleModels.length > 0
-      ? props.visibleModels
+    getModelsForProvider(props.visibleModels, props.config.provider).length > 0
+      ? getModelsForProvider(props.visibleModels, props.config.provider)
       : [
           {
             id: props.config.model,
             displayName: props.config.model,
+            runtimeProvider: props.config.provider,
             supportedReasoningEfforts: [],
           },
         ];
+  const providerCapabilities = selectedProvider?.capabilities;
   const enabledSkillCount = props.skills.filter(
     (skill) => !props.config.disabledSkills.includes(skill.name)
   ).length;
@@ -117,9 +135,9 @@ export function RuntimeControls(props: RuntimeControlsProps) {
           aria-haspopup="dialog"
           onClick={() => togglePanel("model")}
         >
-          <span className="toolbar-chip-label">Model</span>
+          <span className="toolbar-chip-label">Runtime</span>
           <strong>{selectedModel?.displayName ?? props.config.model}</strong>
-          <small>{selectedModel?.provider ?? "Runtime default"}</small>
+          <small>{selectedProvider?.displayName ?? "Runtime default"}</small>
         </button>
         {openPanel === "model" ? (
           <div
@@ -130,9 +148,29 @@ export function RuntimeControls(props: RuntimeControlsProps) {
           >
             <div className="settings-card">
               <label className="field-group">
-                <span>Model</span>
+                <span>Provider</span>
                 <select
                   data-autofocus="true"
+                  value={props.config.provider}
+                  onChange={(event) =>
+                    props.onProviderChange(event.target.value)
+                  }
+                >
+                  {props.providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}
+                    </option>
+                  ))}
+                </select>
+                {selectedProvider?.description ? (
+                  <small className="field-note">
+                    {selectedProvider.description}
+                  </small>
+                ) : null}
+              </label>
+              <label className="field-group">
+                <span>Model</span>
+                <select
                   value={props.config.model}
                   onChange={(event) => props.onModelChange(event.target.value)}
                 >
@@ -145,11 +183,12 @@ export function RuntimeControls(props: RuntimeControlsProps) {
                 <small className="field-note">
                   {modelOptions.length} visible option(s)
                   {selectedModel?.provider
-                    ? ` - ${selectedModel.provider}`
+                    ? ` - served by ${selectedModel.provider}`
                     : ""}
                 </small>
               </label>
-              {selectedModel?.supportedReasoningEfforts.length ? (
+              {providerCapabilities?.supportsReasoningEffort &&
+              selectedModel?.supportedReasoningEfforts.length ? (
                 <label className="field-group">
                   <span>Reasoning effort</span>
                   <select
@@ -199,7 +238,11 @@ export function RuntimeControls(props: RuntimeControlsProps) {
         >
           <span className="toolbar-chip-label">Skills</span>
           <strong>{enabledSkillCount} enabled</strong>
-          <small>{props.skills.length} discovered</small>
+          <small>
+            {providerCapabilities?.supportsSkills
+              ? `${props.skills.length} discovered`
+              : "Unsupported"}
+          </small>
         </button>
         {openPanel === "skills" ? (
           <div
@@ -209,7 +252,12 @@ export function RuntimeControls(props: RuntimeControlsProps) {
             data-panel="skills"
           >
             <div className="settings-card">
-              {props.skills.length === 0 ? (
+              {!providerCapabilities?.supportsSkills ? (
+                <div className="empty-panel compact">
+                  {selectedProvider?.displayName ?? "This provider"} does not
+                  expose Copilot skills in this runtime.
+                </div>
+              ) : props.skills.length === 0 ? (
                 <div className="empty-panel compact">
                   No skills discovered for this agent.
                 </div>
@@ -264,7 +312,13 @@ export function RuntimeControls(props: RuntimeControlsProps) {
         >
           <span className="toolbar-chip-label">MCP</span>
           <strong>{mcpServerCount} configured</strong>
-          <small>{props.mcpError ? "Invalid JSON" : "Ready to send"}</small>
+          <small>
+            {!providerCapabilities?.supportsMcpServers
+              ? "Unsupported"
+              : props.mcpError
+                ? "Invalid JSON"
+                : "Ready to send"}
+          </small>
         </button>
         {openPanel === "mcp" ? (
           <div
@@ -274,25 +328,32 @@ export function RuntimeControls(props: RuntimeControlsProps) {
             data-panel="mcp"
           >
             <div className="settings-card">
-              <label className="field-group grow">
-                <span>MCP JSON</span>
-                <textarea
-                  data-autofocus="true"
-                  value={props.mcpText}
-                  onChange={(event) =>
-                    props.onMcpTextChange(event.target.value)
-                  }
-                  spellCheck={false}
-                  rows={12}
-                />
-                {props.mcpError ? (
-                  <small className="error-text">{props.mcpError}</small>
-                ) : (
-                  <small className="field-note">
-                    Invalid JSON blocks sending until it is fixed.
-                  </small>
-                )}
-              </label>
+              {!providerCapabilities?.supportsMcpServers ? (
+                <div className="empty-panel compact">
+                  {selectedProvider?.displayName ?? "This provider"} does not
+                  support MCP server wiring in this runtime.
+                </div>
+              ) : (
+                <label className="field-group grow">
+                  <span>MCP JSON</span>
+                  <textarea
+                    data-autofocus="true"
+                    value={props.mcpText}
+                    onChange={(event) =>
+                      props.onMcpTextChange(event.target.value)
+                    }
+                    spellCheck={false}
+                    rows={12}
+                  />
+                  {props.mcpError ? (
+                    <small className="error-text">{props.mcpError}</small>
+                  ) : (
+                    <small className="field-note">
+                      Invalid JSON blocks sending until it is fixed.
+                    </small>
+                  )}
+                </label>
+              )}
             </div>
           </div>
         ) : null}

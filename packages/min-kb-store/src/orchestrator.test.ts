@@ -6,8 +6,12 @@ import {
   buildOrchestratorWindowName,
   createOrchestratorJob,
   createOrchestratorSession,
+  deleteOrchestratorJob,
+  deleteOrchestratorSession,
+  discoverCopilotCustomAgents,
   getOrchestratorSession,
   resolveWorkspace,
+  toOrchestratorChatSummary,
   updateOrchestratorSession,
   writeOrchestratorJobCompletion,
 } from "./index.js";
@@ -52,6 +56,11 @@ describe("orchestrator session persistence", () => {
       "agents/copilot-orchestrator/history/2026-03/2026-03-20-fix-auth-flow/SESSION.md"
     );
     expect(created.model).toBe("claude-sonnet-4.6");
+    expect(created.availableCustomAgents).toEqual([]);
+    expect(created.premiumUsage).toEqual({
+      chargedRequestCount: 0,
+      premiumRequestUnits: 0,
+    });
   });
 
   it("derives completed job status from DONE.json", async () => {
@@ -124,6 +133,7 @@ describe("orchestrator session persistence", () => {
     expect(session.model).toBe("claude-sonnet-4.6");
     expect(manifest).toContain("# Orchestrator Session: Platform support");
     expect(manifest).toContain("Model: claude-sonnet-4.6");
+    expect(manifest).toContain("Selected Custom Agent: none");
   });
 
   it("creates clearly named tmux window names", () => {
@@ -135,6 +145,160 @@ describe("orchestrator session persistence", () => {
 
     expect(windowName.length).toBeLessThanOrEqual(28);
     expect(windowName).toContain("some-super-long-project-name".slice(0, 4));
+  });
+
+  it("marks terminal orchestrator sessions in chat summaries", () => {
+    const summary = toOrchestratorChatSummary({
+      sessionId: "2026-03-20-release-support",
+      agentId: "copilot-orchestrator",
+      title: "Release support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Ship the release",
+      projectPath: "/tmp/project",
+      projectPurpose: "Ship the release",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-release-support-0001",
+      tmuxPaneId: "%42",
+      status: "completed",
+      activeJobId: undefined,
+      lastJobId: "job-1",
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/session",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/2026-03-20-release-support/SESSION.md",
+    });
+
+    expect(summary.summary).toContain("Completed");
+    expect(summary.completionStatus).toBe("completed");
+  });
+
+  it("discovers Copilot custom agents from the target project folder", async () => {
+    const root = await createStoreFixture();
+    await mkdir(path.join(root, ".github/agents"), { recursive: true });
+    await writeFile(
+      path.join(root, ".github/agents/reviewer.agent.md"),
+      [
+        "---",
+        "name: PR Reviewer",
+        "description: Reviews changes before merge.",
+        "---",
+        "",
+        "Review every important code change.",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+
+    const agents = await discoverCopilotCustomAgents(root);
+
+    expect(agents).toEqual([
+      {
+        id: "reviewer",
+        name: "PR Reviewer",
+        description: "Reviews changes before merge.",
+        path: ".github/agents/reviewer.agent.md",
+      },
+    ]);
+  });
+
+  it("deletes queued jobs from persisted session history", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const created = await createOrchestratorSession(workspace, {
+      title: "Fix auth flow",
+      projectPath: root,
+      projectPurpose: "Repair the authentication redirect",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "orchestrator-auth-fix-a1b2",
+      tmuxPaneId: "%42",
+      startedAt: "2026-03-20T12:00:00Z",
+    });
+    const job = await createOrchestratorJob(workspace, created.sessionId, {
+      promptPreview: "Investigate the redirect loop",
+      promptMode: "inline",
+      submittedAt: "2026-03-20T12:01:00Z",
+    });
+
+    await deleteOrchestratorJob(workspace, created.sessionId, job.jobId);
+
+    const session = await getOrchestratorSession(workspace, created.sessionId);
+    expect(session.jobs).toHaveLength(0);
+  });
+
+  it("persists one attached file for delegated jobs", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const created = await createOrchestratorSession(workspace, {
+      title: "Inspect assets",
+      projectPath: root,
+      projectPurpose: "Inspect the attached asset",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "orchestrator-assets-a1b2",
+      tmuxPaneId: "%42",
+      startedAt: "2026-03-20T12:00:00Z",
+    });
+
+    const job = await createOrchestratorJob(workspace, created.sessionId, {
+      promptPreview: "Inspect the attached asset",
+      promptMode: "file",
+      attachment: {
+        name: "asset.png",
+        contentType: "image/png",
+        size: 4,
+        base64Data: Buffer.from("test").toString("base64"),
+      },
+      submittedAt: "2026-03-20T12:01:00Z",
+    });
+
+    expect(job.attachment).toEqual(
+      expect.objectContaining({
+        name: "asset.png",
+        contentType: "image/png",
+        size: 4,
+        mediaType: "image",
+      })
+    );
+
+    const stored = await readFile(
+      path.join(root, job.attachment?.relativePath ?? ""),
+      "utf8"
+    );
+    expect(stored).toBe("test");
+  });
+
+  it("deletes an orchestrator session directory", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const created = await createOrchestratorSession(workspace, {
+      title: "Fix auth flow",
+      projectPath: root,
+      projectPurpose: "Repair the authentication redirect",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "orchestrator-auth-fix-a1b2",
+      tmuxPaneId: "%42",
+      startedAt: "2026-03-20T12:00:00Z",
+    });
+
+    await deleteOrchestratorSession(workspace, created.sessionId);
+
+    await expect(
+      getOrchestratorSession(workspace, created.sessionId)
+    ).rejects.toThrow(/not found/);
   });
 });
 

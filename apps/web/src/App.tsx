@@ -1,10 +1,12 @@
 import {
   type AgentSummary,
+  type ChatProviderDescriptor,
   type ChatRequest,
   type ChatRuntimeConfig,
   type ChatSession,
   type ChatSessionSummary,
   DEFAULT_CHAT_MODEL,
+  DEFAULT_CHAT_PROVIDER,
   type MemoryAnalysisResponse,
   type ModelDescriptor,
   type OrchestratorCapabilities,
@@ -17,6 +19,7 @@ import {
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { toAttachmentUpload } from "./attachments";
 import {
   clearDraft,
   loadDraft,
@@ -46,15 +49,18 @@ import { RuntimeControls } from "./components/RuntimeControls";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SettingsModal } from "./components/SettingsModal";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle";
+import { SingleAttachmentPicker } from "./components/SingleAttachmentPicker";
 import {
   findModelDescriptor,
   formatReasoningEffort,
+  getModelsForProvider,
   normalizeConfigForModel,
 } from "./model-config";
 import {
   acknowledgeSessionNotification,
   getSessionNotificationKey,
-  hasSessionNotification,
+  listAgentNotificationIds,
+  listSessionNotificationIds,
 } from "./session-notifications";
 import {
   clampSidebarWidth,
@@ -83,6 +89,15 @@ type DangerAction =
       status: OrchestratorSession["status"];
     }
   | {
+      kind: "orchestrator-session-restart";
+      sessionId: string;
+      title: string;
+      queuedJobCount: number;
+      delegatedJobCount: number;
+      status: OrchestratorSession["status"];
+      runningJobPromptPreview?: string;
+    }
+  | {
       kind: "orchestrator-job";
       sessionId: string;
       jobId: string;
@@ -102,6 +117,12 @@ export default function App() {
     cachedSnapshot.workspace
   );
   const [agents, setAgents] = useState<AgentSummary[]>(cachedSnapshot.agents);
+  const [providers, setProviders] = useState<ChatProviderDescriptor[]>(
+    cachedSnapshot.providers
+  );
+  const [defaultProvider, setDefaultProvider] = useState<string>(
+    cachedSnapshot.defaultProvider
+  );
   const [models, setModels] = useState<ModelDescriptor[]>(
     cachedSnapshot.models
   );
@@ -145,6 +166,7 @@ export default function App() {
     Record<string, OrchestratorSession>
   >({});
   const [analyzingMemory, setAnalyzingMemory] = useState(false);
+  const [memoryAnalysisOpen, setMemoryAnalysisOpen] = useState(false);
   const [memoryAnalysis, setMemoryAnalysis] = useState<
     MemoryAnalysisResponse | undefined
   >();
@@ -155,7 +177,11 @@ export default function App() {
   const isOrchestratorAgent =
     selectedAgent?.kind === "orchestrator" ||
     selectedAgent?.id === ORCHESTRATOR_AGENT_ID;
-  const selectedModel = findModelDescriptor(models, config.model);
+  const selectedModel = findModelDescriptor(
+    models,
+    config.model,
+    config.provider
+  );
   const visibleModels = useMemo(
     () => getVisibleModels(models, uiPreferences.hiddenModelIds, config.model),
     [models, uiPreferences.hiddenModelIds, config.model]
@@ -182,24 +208,33 @@ export default function App() {
     selectedOrchestratorSession?.jobs.filter((job) => job.status === "queued")
       .length ?? 0;
   const selectedOrchestratorModel = selectedOrchestratorSession
-    ? findModelDescriptor(models, selectedOrchestratorSession.model)
+    ? findModelDescriptor(
+        models,
+        selectedOrchestratorSession.model,
+        defaultProvider
+      )
     : undefined;
   const visibleOrchestratorModels = useMemo(
     () =>
-      getVisibleModels(
-        models,
-        uiPreferences.hiddenModelIds,
-        selectedOrchestratorSession?.model ?? config.model
+      getModelsForProvider(
+        getVisibleModels(
+          models,
+          uiPreferences.hiddenModelIds,
+          selectedOrchestratorSession?.model ?? config.model
+        ),
+        defaultProvider
       ),
     [
       models,
       uiPreferences.hiddenModelIds,
       selectedOrchestratorSession?.model,
       config.model,
+      defaultProvider,
     ]
   );
   const draftKey = `${selectedAgentId ?? "no-agent"}:${selectedSessionId ?? "new"}`;
   const [draft, setDraft] = useState(() => loadDraft(draftKey));
+  const [chatAttachment, setChatAttachment] = useState<File | undefined>();
   const enabledSkillCount = skills.filter(
     (skill) => !config.disabledSkills.includes(skill.name)
   ).length;
@@ -223,16 +258,15 @@ export default function App() {
     ]
   );
   const notificationSessionIds = useMemo(
-    () =>
-      new Set(
-        sessions
-          .filter((session) =>
-            hasSessionNotification(session, sessionNotificationAcks)
-          )
-          .map((session) => session.sessionId)
-      ),
+    () => listSessionNotificationIds(sessions, sessionNotificationAcks),
     [sessionNotificationAcks, sessions]
   );
+  const notificationAgentIds = useMemo(
+    () => listAgentNotificationIds(sessionsByAgent, sessionNotificationAcks),
+    [sessionNotificationAcks, sessionsByAgent]
+  );
+  const selectedAgentHasNotifications =
+    selectedAgentId !== undefined && notificationAgentIds.has(selectedAgentId);
   const orchestratorProjectPathSuggestions = useMemo(() => {
     const suggestions = new Set<string>();
     if (orchestratorCapabilities?.defaultProjectPath) {
@@ -271,11 +305,21 @@ export default function App() {
     saveSnapshot({
       workspace,
       agents,
+      providers,
+      defaultProvider,
       models,
       sessionsByAgent,
       threadsByKey,
     });
-  }, [workspace, agents, models, sessionsByAgent, threadsByKey]);
+  }, [
+    workspace,
+    agents,
+    providers,
+    defaultProvider,
+    models,
+    sessionsByAgent,
+    threadsByKey,
+  ]);
 
   useEffect(() => {
     saveQueue(queue);
@@ -291,6 +335,7 @@ export default function App() {
 
   useEffect(() => {
     setDraft(loadDraft(draftKey));
+    setChatAttachment(undefined);
   }, [draftKey]);
 
   useEffect(() => {
@@ -467,7 +512,7 @@ export default function App() {
 
   async function bootstrap() {
     try {
-      const [workspaceResponse, agentsResponse, modelsResponse, capabilities] =
+      const [workspaceResponse, agentsResponse, modelCatalog, capabilities] =
         await Promise.all([
           api.getWorkspace(),
           api.listAgents(),
@@ -476,9 +521,19 @@ export default function App() {
         ]);
       setWorkspace(workspaceResponse);
       setAgents(agentsResponse);
-      setModels(modelsResponse);
+      setProviders(modelCatalog.providers);
+      setDefaultProvider(modelCatalog.defaultProvider);
+      setModels(modelCatalog.models);
       setOrchestratorCapabilities(capabilities);
-      setConfig((current) => normalizeConfigForModel(current, modelsResponse));
+      setConfig((current) =>
+        normalizeConfigForModel(
+          {
+            ...current,
+            provider: current.provider || modelCatalog.defaultProvider,
+          },
+          modelCatalog.models
+        )
+      );
       setOffline(false);
       if (!selectedAgentId && agentsResponse[0]) {
         setSelectedAgentId(agentsResponse[0].id);
@@ -552,12 +607,15 @@ export default function App() {
     setMcpText(DEFAULT_MCP_TEXT);
     setError(undefined);
     setMemoryAnalysis(undefined);
+    setMemoryAnalysisOpen(false);
   }
 
   function handleSelectSession(agentId: string, sessionId: string) {
     setSelectedAgentId(agentId);
     setSelectedSessionId(sessionId);
     setError(undefined);
+    setMemoryAnalysis(undefined);
+    setMemoryAnalysisOpen(false);
   }
 
   function handleNewSession() {
@@ -565,6 +623,8 @@ export default function App() {
     setConfig(normalizeConfigForModel(createDefaultConfig(), models));
     setMcpText(DEFAULT_MCP_TEXT);
     setError(undefined);
+    setMemoryAnalysis(undefined);
+    setMemoryAnalysisOpen(false);
     if (!isOrchestratorAgent) {
       focusComposer();
     }
@@ -619,14 +679,24 @@ export default function App() {
   }
 
   async function handleSend() {
-    if (!selectedAgentId || !draft.trim() || busy || mcpError) {
+    if (
+      !selectedAgentId ||
+      (!draft.trim() && !chatAttachment) ||
+      busy ||
+      mcpError
+    ) {
       return;
     }
 
     const request: ChatRequest = {
-      title: selectedSessionId ? undefined : buildTitleFromPrompt(draft),
+      title: selectedSessionId
+        ? undefined
+        : buildTitleFromPrompt(draft || chatAttachment?.name || ""),
       prompt: draft,
       config,
+      attachment: chatAttachment
+        ? await toAttachmentUpload(chatAttachment)
+        : undefined,
     };
 
     setBusy(true);
@@ -641,22 +711,29 @@ export default function App() {
       storeThread(response.thread);
       setSelectedSessionId(response.thread.sessionId);
       setDraft("");
+      setChatAttachment(undefined);
       setOffline(false);
     } catch (sendError) {
       setError(getErrorMessage(sendError));
       if (isOfflineError(sendError)) {
         setOffline(true);
-        setQueue((current) => [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            agentId: selectedAgentId,
-            sessionId: selectedSessionId,
-            title: request.title,
-            request,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
+        if (request.attachment) {
+          setError(
+            "Attachment retries are not queued offline yet. Please resend when the runtime is reachable."
+          );
+        } else {
+          setQueue((current) => [
+            ...current,
+            {
+              id: crypto.randomUUID(),
+              agentId: selectedAgentId,
+              sessionId: selectedSessionId,
+              title: request.title,
+              request,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
       }
     } finally {
       setBusy(false);
@@ -732,7 +809,10 @@ export default function App() {
     }
   }
 
-  async function handleDelegateOrchestratorPrompt(prompt: string) {
+  async function handleDelegateOrchestratorPrompt(request: {
+    prompt: string;
+    attachment?: File;
+  }) {
     if (!selectedSessionId) {
       return;
     }
@@ -741,7 +821,10 @@ export default function App() {
     setError(undefined);
     try {
       const session = await api.delegateOrchestratorJob(selectedSessionId, {
-        prompt,
+        prompt: request.prompt,
+        attachment: request.attachment
+          ? await toAttachmentUpload(request.attachment)
+          : undefined,
       });
       storeOrchestratorSession(session);
       setOffline(false);
@@ -796,6 +879,8 @@ export default function App() {
       return;
     }
 
+    setMemoryAnalysis(undefined);
+    setMemoryAnalysisOpen(true);
     setAnalyzingMemory(true);
     setError(undefined);
     try {
@@ -809,6 +894,7 @@ export default function App() {
       setMemoryAnalysis(result);
       setOffline(false);
     } catch (analysisError) {
+      setMemoryAnalysisOpen(false);
       setError(getErrorMessage(analysisError));
     } finally {
       setAnalyzingMemory(false);
@@ -857,6 +943,25 @@ export default function App() {
     });
   }
 
+  function promptRestartSelectedOrchestratorSession() {
+    if (!selectedOrchestratorSession) {
+      return;
+    }
+
+    const runningJob = selectedOrchestratorSession.jobs.find(
+      (job) => job.status === "running"
+    );
+    setDangerAction({
+      kind: "orchestrator-session-restart",
+      sessionId: selectedOrchestratorSession.sessionId,
+      title: selectedOrchestratorSession.title,
+      queuedJobCount: selectedOrchestratorQueuedJobCount,
+      delegatedJobCount: selectedOrchestratorSession.jobs.length,
+      status: selectedOrchestratorSession.status,
+      runningJobPromptPreview: runningJob?.promptPreview,
+    });
+  }
+
   function promptDeleteQueuedJob(jobId: string) {
     if (!selectedOrchestratorSession) {
       return;
@@ -901,6 +1006,13 @@ export default function App() {
           );
           removeOrchestratorSessionLocally(dangerAction.sessionId);
           break;
+        case "orchestrator-session-restart": {
+          const session = await api.restartOrchestratorSession(
+            dangerAction.sessionId
+          );
+          storeOrchestratorSession(session);
+          break;
+        }
         case "orchestrator-job": {
           const session = await api.deleteOrchestratorJob(
             dangerAction.sessionId,
@@ -1033,6 +1145,7 @@ export default function App() {
     if (selectedAgentId === agentId && selectedSessionId === sessionId) {
       setSelectedSessionId(remainingSessions[0]?.sessionId);
       setMemoryAnalysis(undefined);
+      setMemoryAnalysisOpen(false);
       if (!remainingSessions[0]) {
         setConfig(normalizeConfigForModel(createDefaultConfig(), models));
         setMcpText(DEFAULT_MCP_TEXT);
@@ -1074,6 +1187,7 @@ export default function App() {
     >
       <AgentRail
         agents={agents}
+        notificationAgentIds={notificationAgentIds}
         selectedAgentId={selectedAgentId}
         offline={offline}
         onSelect={handleSelectAgent}
@@ -1234,6 +1348,14 @@ export default function App() {
                   }
                 >
                   {uiPreferences.sidebarCollapsed ? "Show chats" : "Hide chats"}
+                  {uiPreferences.sidebarCollapsed &&
+                  selectedAgentHasNotifications ? (
+                    <span
+                      className="sidebar-notification-dot"
+                      role="img"
+                      aria-label="Completed work waiting in chats"
+                    />
+                  ) : null}
                 </button>
               </div>
             </div>
@@ -1241,12 +1363,18 @@ export default function App() {
 
           {!isOrchestratorAgent ? (
             <RuntimeControls
+              providers={providers}
               models={models}
               visibleModels={visibleModels}
               skills={skills}
               config={config}
               mcpText={mcpText}
               mcpError={mcpError}
+              onProviderChange={(provider) =>
+                setConfig((current) =>
+                  normalizeConfigForModel({ ...current, provider }, models)
+                )
+              }
               onModelChange={(model) =>
                 setConfig((current) =>
                   normalizeConfigForModel({ ...current, model }, models)
@@ -1303,14 +1431,14 @@ export default function App() {
               onUpdateSession={(request) =>
                 void handleUpdateOrchestratorSession(request)
               }
-              onDelegate={(prompt) =>
-                void handleDelegateOrchestratorPrompt(prompt)
+              onDelegate={(request) =>
+                void handleDelegateOrchestratorPrompt(request)
               }
               onSendInput={(input, submit) =>
                 void handleSendOrchestratorInput(input, submit)
               }
               onCancelJob={() => void handleCancelOrchestratorJob()}
-              onDeleteSession={promptDeleteSelectedSession}
+              onRestartSession={promptRestartSelectedOrchestratorSession}
               onDeleteQueuedJob={promptDeleteQueuedJob}
               onSessionUpdate={(session) => storeOrchestratorSession(session)}
             />
@@ -1323,6 +1451,11 @@ export default function App() {
               />
 
               <div className="composer-shell">
+                <SingleAttachmentPicker
+                  file={chatAttachment}
+                  pending={busy}
+                  onChange={setChatAttachment}
+                />
                 <textarea
                   ref={composerRef}
                   value={draft}
@@ -1356,7 +1489,7 @@ export default function App() {
                     onClick={() => void handleSend()}
                     disabled={
                       !selectedAgentId ||
-                      !draft.trim() ||
+                      (!draft.trim() && !chatAttachment) ||
                       busy ||
                       Boolean(mcpError)
                     }
@@ -1401,9 +1534,13 @@ export default function App() {
       />
 
       <MemoryAnalysisModal
-        open={Boolean(memoryAnalysis)}
+        open={memoryAnalysisOpen}
+        loading={analyzingMemory}
         result={memoryAnalysis}
-        onClose={() => setMemoryAnalysis(undefined)}
+        onClose={() => {
+          setMemoryAnalysis(undefined);
+          setMemoryAnalysisOpen(false);
+        }}
       />
       {dangerAction ? (
         <DangerConfirmModal
@@ -1414,6 +1551,7 @@ export default function App() {
           warning={getDangerWarning(dangerAction)}
           acknowledgeLabel={getDangerAcknowledgeLabel(dangerAction)}
           confirmLabel={getDangerConfirmLabel(dangerAction)}
+          busyLabel={getDangerBusyLabel(dangerAction)}
           busy={deletePending}
           onClose={() => setDangerAction(undefined)}
           onConfirm={() => void handleConfirmDangerAction()}
@@ -1425,6 +1563,7 @@ export default function App() {
 
 function createDefaultConfig(): ChatRuntimeConfig {
   return {
+    provider: DEFAULT_CHAT_PROVIDER,
     model: DEFAULT_CHAT_MODEL,
     disabledSkills: [],
     mcpServers: {},
@@ -1486,6 +1625,8 @@ function getDangerTitle(action: DangerAction): string {
       return "Delete this chat history?";
     case "orchestrator-session":
       return "Delete this orchestrator session?";
+    case "orchestrator-session-restart":
+      return "Start a new tmux session?";
     case "orchestrator-job":
       return "Delete this queued task?";
   }
@@ -1497,6 +1638,8 @@ function getDangerDescription(action: DangerAction): string {
       return `Remove "${action.title}" from this agent's saved conversation history.`;
     case "orchestrator-session":
       return `Remove "${action.title}" and all of its delegated work.`;
+    case "orchestrator-session-restart":
+      return `Start a fresh tmux pane for "${action.title}" and stop the current one.`;
     case "orchestrator-job":
       return "Remove this queued task before it starts running in tmux.";
   }
@@ -1517,6 +1660,14 @@ function getDangerDetails(action: DangerAction): string[] {
         `${action.queuedJobCount} queued task${action.queuedJobCount === 1 ? "" : "s"} will be removed`,
         `Current status: ${action.status}`,
       ];
+    case "orchestrator-session-restart":
+      return [
+        `${action.delegatedJobCount} delegated job${action.delegatedJobCount === 1 ? "" : "s"} total`,
+        `${action.queuedJobCount} queued task${action.queuedJobCount === 1 ? "" : "s"} remain queued for this session`,
+        action.runningJobPromptPreview
+          ? `Current running task will stop: ${action.runningJobPromptPreview}`
+          : `Current status: ${action.status}`,
+      ];
     case "orchestrator-job":
       return [
         action.promptPreview,
@@ -1531,6 +1682,8 @@ function getDangerWarning(action: DangerAction): string {
       return "This permanently removes the session manifest, turns, cached draft, and any offline queued retries for this chat.";
     case "orchestrator-session":
       return "This permanently removes the saved session, stops its tmux window when possible, and deletes every queued task in that session.";
+    case "orchestrator-session-restart":
+      return "You will not be able to retrieve or view logs from the previous tmux session after starting a new one. Any running task will be stopped.";
     case "orchestrator-job":
       return "This permanently removes the queued task from the session backlog. Running and completed jobs stay untouched.";
   }
@@ -1542,6 +1695,8 @@ function getDangerAcknowledgeLabel(action: DangerAction): string {
       return "I understand this chat history cannot be restored.";
     case "orchestrator-session":
       return "I understand this session and its queued work cannot be restored.";
+    case "orchestrator-session-restart":
+      return "I understand the previous tmux session logs will no longer be available.";
     case "orchestrator-job":
       return "I understand this queued task will be removed before it runs.";
   }
@@ -1553,8 +1708,21 @@ function getDangerConfirmLabel(action: DangerAction): string {
       return "Delete chat history";
     case "orchestrator-session":
       return "Delete session";
+    case "orchestrator-session-restart":
+      return "Start new tmux session";
     case "orchestrator-job":
       return "Delete queued task";
+  }
+}
+
+function getDangerBusyLabel(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+    case "orchestrator-session":
+    case "orchestrator-job":
+      return "Deleting...";
+    case "orchestrator-session-restart":
+      return "Starting...";
   }
 }
 
@@ -1574,7 +1742,7 @@ function isOfflineError(error: unknown): boolean {
 }
 
 function isMemorySkillName(name: string): boolean {
-  return /memory|working-memory|short-term|long-term/i.test(name);
+  return /memory|working[- ]memory|short[- ]term|long[- ]term/i.test(name);
 }
 
 function formatTimestamp(timestamp: string): string {

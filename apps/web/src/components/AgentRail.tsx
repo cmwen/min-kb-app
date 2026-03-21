@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 interface AgentRailProps {
   agents: AgentSummary[];
+  notificationAgentIds?: ReadonlySet<string>;
   selectedAgentId?: string;
   offline: boolean;
   onSelect: (agentId: string) => void;
@@ -13,65 +14,82 @@ interface AgentRailProps {
 export function AgentRail(props: AgentRailProps) {
   return (
     <aside className="agent-rail" aria-label="Agents">
-      <div className="brand-pill">kb</div>
-      <div className="agent-list">
-        {props.agents.map((agent, index) => {
-          const initials = agent.title
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((part) => part[0]?.toUpperCase() ?? "")
-            .join("");
-          const selected = agent.id === props.selectedAgentId;
-          const buttonClassName = [
-            "agent-pill",
-            selected ? "selected" : undefined,
-            agent.kind === "orchestrator"
-              ? "agent-pill-orchestrator"
-              : undefined,
-          ]
-            .filter(Boolean)
-            .join(" ");
+      <div className="agent-rail-scroll">
+        <div className="brand-pill">kb</div>
+        <div className="agent-list">
+          {props.agents.map((agent, index) => {
+            const initials = agent.title
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase() ?? "")
+              .join("");
+            const selected = agent.id === props.selectedAgentId;
+            const showNotification =
+              props.notificationAgentIds?.has(agent.id) ?? false;
+            const buttonClassName = [
+              "agent-pill",
+              selected ? "selected" : undefined,
+              agent.kind === "orchestrator"
+                ? "agent-pill-orchestrator"
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ");
 
-          return (
-            <button
-              type="button"
-              key={agent.id}
-              className={buttonClassName}
-              title={agent.title}
-              aria-label={`Select ${agent.title}`}
-              aria-pressed={selected}
-              onClick={() => props.onSelect(agent.id)}
-              onKeyDown={(event) =>
-                handleAgentKeyDown(event, index, props.agents, props.onSelect)
-              }
-            >
-              {initials}
-            </button>
-          );
-        })}
-      </div>
-      <div className="rail-footer">
-        <button
-          type="button"
-          className="new-session-pill"
-          onClick={props.onNewSession}
-          aria-label="Start a new chat"
-          title="New chat (Alt+Shift+N)"
-        >
-          +
-        </button>
-        <div className={props.offline ? "status-pill offline" : "status-pill"}>
-          {props.offline ? "Offline" : "Live"}
+            return (
+              <button
+                type="button"
+                key={agent.id}
+                className={buttonClassName}
+                title={agent.title}
+                aria-label={
+                  showNotification
+                    ? `Select ${agent.title}. Completed work waiting.`
+                    : `Select ${agent.title}`
+                }
+                aria-pressed={selected}
+                onClick={() => props.onSelect(agent.id)}
+                onKeyDown={(event) =>
+                  handleAgentKeyDown(event, index, props.agents, props.onSelect)
+                }
+              >
+                {initials}
+                {showNotification ? (
+                  <span
+                    className="agent-notification-dot"
+                    role="img"
+                    aria-label="Agent has completed work waiting"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
         </div>
-        <button
-          type="button"
-          className="rail-icon-button"
-          aria-label="Open app settings"
-          title="Settings (Cmd/Ctrl+,)"
-          onClick={props.onOpenSettings}
-        >
-          <GearIcon />
-        </button>
+        <div className="rail-footer">
+          <button
+            type="button"
+            className="new-session-pill"
+            onClick={props.onNewSession}
+            aria-label="Start a new chat"
+            title="New chat (Alt+Shift+N)"
+          >
+            +
+          </button>
+          <div
+            className={props.offline ? "status-pill offline" : "status-pill"}
+          >
+            {props.offline ? "Offline" : "Live"}
+          </div>
+          <button
+            type="button"
+            className="rail-icon-button"
+            aria-label="Open app settings"
+            title="Settings (Cmd/Ctrl+,)"
+            onClick={props.onOpenSettings}
+          >
+            <GearIcon />
+          </button>
+        </div>
       </div>
     </aside>
   );

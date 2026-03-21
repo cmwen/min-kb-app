@@ -2,18 +2,28 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
+  AttachmentUpload,
   ChatSessionSummary,
+  CopilotCustomAgent,
   OrchestratorJob,
   OrchestratorSession,
   OrchestratorSessionStatus,
   OrchestratorSessionSummary,
+  PremiumUsage,
+  PremiumUsageTotals,
+  StoredAttachment,
 } from "@min-kb-app/shared";
 import {
+  attachmentUploadSchema,
+  copilotCustomAgentSchema,
   DEFAULT_CHAT_MODEL,
   orchestratorJobSchema,
   orchestratorSessionSchema,
   orchestratorSessionSummarySchema,
+  premiumUsageTotalsSchema,
+  storedAttachmentSchema,
 } from "@min-kb-app/shared";
+import matter from "gray-matter";
 import { sessionIdFromTitle } from "./sessions.js";
 import {
   compactTimestamp,
@@ -58,6 +68,8 @@ export interface CreateOrchestratorSessionInput {
   projectPath: string;
   projectPurpose: string;
   model?: string;
+  availableCustomAgents?: CopilotCustomAgent[];
+  selectedCustomAgentId?: string;
   tmuxSessionName: string;
   tmuxWindowName: string;
   tmuxPaneId: string;
@@ -68,6 +80,9 @@ export interface CreateOrchestratorJobInput {
   promptPreview: string;
   promptMode: OrchestratorJob["promptMode"];
   promptPath?: string;
+  attachment?: AttachmentUpload;
+  customAgentId?: string;
+  premiumUsage?: PremiumUsage;
   submittedAt?: string;
 }
 
@@ -153,10 +168,15 @@ export async function createOrchestratorSession(
     projectPath: path.resolve(input.projectPath),
     projectPurpose: input.projectPurpose.trim(),
     model: input.model?.trim() || DEFAULT_CHAT_MODEL,
+    availableCustomAgents: copilotCustomAgentSchema
+      .array()
+      .parse(input.availableCustomAgents ?? []),
+    selectedCustomAgentId: input.selectedCustomAgentId,
     tmuxSessionName: input.tmuxSessionName,
     tmuxWindowName: input.tmuxWindowName,
     tmuxPaneId: input.tmuxPaneId,
     status: input.status ?? "idle",
+    premiumUsage: premiumUsageTotalsSchema.parse({}),
   };
 
   await writeOrchestratorSessionManifest(sessionDirectory, state);
@@ -191,6 +211,18 @@ export async function updateOrchestratorSession(
   return readOrchestratorSessionSummaryFromState(workspace, statePath);
 }
 
+export async function deleteOrchestratorSession(
+  workspace: MinKbWorkspace,
+  sessionId: string
+): Promise<void> {
+  const statePath = await findOrchestratorStatePath(workspace, sessionId);
+  if (!statePath) {
+    throw new Error(`Cannot delete missing orchestrator session: ${sessionId}`);
+  }
+
+  await fs.rm(path.dirname(statePath), { recursive: true, force: true });
+}
+
 export async function createOrchestratorJob(
   workspace: MinKbWorkspace,
   sessionId: string,
@@ -210,6 +242,13 @@ export async function createOrchestratorJob(
     jobId
   );
   await fs.mkdir(jobDirectory, { recursive: true });
+  const attachment = input.attachment
+    ? await writeOrchestratorJobAttachment(
+        workspace,
+        jobDirectory,
+        input.attachment
+      )
+    : undefined;
 
   const job = orchestratorJobSchema.parse({
     jobId,
@@ -217,6 +256,9 @@ export async function createOrchestratorJob(
     promptPreview: input.promptPreview,
     promptMode: input.promptMode,
     promptPath: input.promptPath,
+    attachment,
+    customAgentId: input.customAgentId,
+    premiumUsage: input.premiumUsage,
     status: "queued",
     submittedAt,
     jobDirectory,
@@ -246,6 +288,19 @@ export async function updateOrchestratorJob(
   });
   await writeOrchestratorJob(jobDirectory, next);
   return next;
+}
+
+export async function deleteOrchestratorJob(
+  workspace: MinKbWorkspace,
+  sessionId: string,
+  jobId: string
+): Promise<void> {
+  const jobPath = await findOrchestratorJobPath(workspace, sessionId, jobId);
+  if (!jobPath) {
+    throw new Error(`Cannot delete missing job ${jobId} for ${sessionId}`);
+  }
+
+  await fs.rm(path.dirname(jobPath), { recursive: true, force: true });
 }
 
 export async function writeOrchestratorJobCompletion(
@@ -318,6 +373,20 @@ export async function getOrchestratorTerminalSize(
   }
 }
 
+export async function resetOrchestratorTerminalLog(
+  workspace: MinKbWorkspace,
+  sessionId: string
+): Promise<void> {
+  const statePath = await findOrchestratorStatePath(workspace, sessionId);
+  if (!statePath) {
+    throw new Error(`Orchestrator session not found: ${sessionId}`);
+  }
+
+  const logPath = path.join(path.dirname(statePath), ORCHESTRATOR_TERMINAL_LOG);
+  await fs.mkdir(path.dirname(logPath), { recursive: true });
+  await fs.writeFile(logPath, "", "utf8");
+}
+
 export function toOrchestratorChatSummary(
   session: OrchestratorSessionSummary
 ): ChatSessionSummary {
@@ -330,7 +399,30 @@ export function toOrchestratorChatSummary(
     manifestPath: session.manifestPath,
     turnCount: 0,
     lastTurnAt: session.updatedAt,
+    premiumUsage: session.premiumUsage,
+    completionStatus:
+      session.status === "completed" || session.status === "failed"
+        ? session.status
+        : undefined,
   };
+}
+
+export function accumulatePremiumUsageTotals(
+  current: PremiumUsageTotals | undefined,
+  usage: PremiumUsage | undefined
+): PremiumUsageTotals | undefined {
+  if (!usage) {
+    return current;
+  }
+
+  const normalizedCurrent = premiumUsageTotalsSchema.parse(current ?? {});
+  return premiumUsageTotalsSchema.parse({
+    chargedRequestCount: normalizedCurrent.chargedRequestCount + 1,
+    premiumRequestUnits:
+      normalizedCurrent.premiumRequestUnits + usage.premiumRequestUnits,
+    lastRecordedAt: usage.recordedAt,
+    lastModel: usage.model,
+  });
 }
 
 export function orchestratorHistoryRoot(workspace: MinKbWorkspace): string {
@@ -350,6 +442,107 @@ export function buildOrchestratorWindowName(
   const suffix = sessionId.slice(-4);
   const label = `${slugify(baseName)}-${slugify(title)}-${suffix}`;
   return label.slice(0, 28);
+}
+
+export async function discoverCopilotCustomAgents(
+  projectPath: string
+): Promise<CopilotCustomAgent[]> {
+  const roots = [
+    path.join(projectPath, ".github", "agents"),
+    path.join(projectPath, "agents"),
+  ];
+  const agentsById = new Map<string, CopilotCustomAgent>();
+
+  for (const root of roots) {
+    const files = (await walkFiles(root)).filter((filePath) =>
+      filePath.endsWith(".agent.md")
+    );
+
+    for (const filePath of files) {
+      const relativePath = toPosixRelative(projectPath, filePath);
+      const id = path.basename(filePath, ".agent.md");
+      const raw = await fs.readFile(filePath, "utf8");
+      const parsed = matter(raw);
+      const target = parsed.data.target;
+      if (
+        typeof target === "string" &&
+        target.trim().length > 0 &&
+        target !== "github-copilot"
+      ) {
+        continue;
+      }
+
+      const name =
+        typeof parsed.data.name === "string" &&
+        parsed.data.name.trim().length > 0
+          ? parsed.data.name.trim()
+          : id;
+      const description =
+        typeof parsed.data.description === "string"
+          ? parsed.data.description.trim()
+          : "";
+      agentsById.set(
+        id,
+        copilotCustomAgentSchema.parse({
+          id,
+          name,
+          description,
+          path: relativePath,
+        })
+      );
+    }
+  }
+
+  return [...agentsById.values()].sort((left, right) =>
+    left.name.localeCompare(right.name)
+  );
+}
+
+async function writeOrchestratorJobAttachment(
+  workspace: MinKbWorkspace,
+  jobDirectory: string,
+  attachment: AttachmentUpload
+) {
+  const normalized = attachmentUploadSchema.parse(attachment);
+  const attachmentDirectory = path.join(jobDirectory, "attachments");
+  await fs.mkdir(attachmentDirectory, { recursive: true });
+
+  const normalizedFilename = buildAttachmentFilename(normalized.name);
+  const attachmentPath = path.join(attachmentDirectory, normalizedFilename);
+  const buffer = Buffer.from(normalized.base64Data, "base64");
+  await fs.writeFile(attachmentPath, buffer);
+
+  return storedAttachmentSchema.parse({
+    attachmentId: randomUUID().replace(/-/g, ""),
+    name: normalized.name,
+    contentType: normalized.contentType,
+    size: buffer.length,
+    mediaType: classifyAttachmentMediaType(normalized.contentType),
+    relativePath: toPosixRelative(workspace.storeRoot, attachmentPath),
+  });
+}
+
+function buildAttachmentFilename(name: string): string {
+  const extension = path.extname(name).toLowerCase();
+  const stem = path.basename(name, extension);
+  const normalizedStem = slugify(stem) || "attachment";
+  return `${normalizedStem}${extension}`;
+}
+
+function classifyAttachmentMediaType(
+  contentType: string
+): StoredAttachment["mediaType"] {
+  if (contentType.startsWith("image/")) {
+    return "image";
+  }
+  if (
+    contentType.startsWith("text/") ||
+    contentType.includes("json") ||
+    contentType.includes("xml")
+  ) {
+    return "text";
+  }
+  return "binary";
 }
 
 function resolveOrchestratorSessionDirectory(
@@ -410,6 +603,8 @@ async function writeOrchestratorSessionManifest(
     `Project Path: ${state.projectPath}`,
     `Project Purpose: ${state.projectPurpose}`,
     `Model: ${state.model}`,
+    `Selected Custom Agent: ${state.selectedCustomAgentId ?? "none"}`,
+    `Available Custom Agents: ${state.availableCustomAgents.length}`,
     `Tmux Session: ${state.tmuxSessionName}`,
     `Tmux Window: ${state.tmuxWindowName}`,
     `Tmux Pane: ${state.tmuxPaneId}`,
@@ -417,6 +612,21 @@ async function writeOrchestratorSessionManifest(
     "## Summary",
     "",
     state.summary || state.projectPurpose,
+    "",
+    "## Copilot Custom Agents",
+    "",
+    state.availableCustomAgents.length > 0
+      ? state.availableCustomAgents
+          .map((agent) => {
+            const selected =
+              agent.id === state.selectedCustomAgentId ? " (selected)" : "";
+            const description = agent.description
+              ? ` - ${agent.description}`
+              : "";
+            return `- ${agent.id}${selected} — ${agent.path}${description}`;
+          })
+          .join("\n")
+      : "No Copilot custom agents were discovered in the project path.",
   ].join("\n");
   await fs.writeFile(
     path.join(sessionDirectory, "SESSION.md"),

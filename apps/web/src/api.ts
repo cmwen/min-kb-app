@@ -6,7 +6,7 @@ import type {
   ChatSessionSummary,
   MemoryAnalysisRequest,
   MemoryAnalysisResponse,
-  ModelDescriptor,
+  ModelCatalog,
   OrchestratorCapabilities,
   OrchestratorDelegateRequest,
   OrchestratorSession,
@@ -22,11 +22,15 @@ export const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "";
 export const api = {
   getWorkspace: () => request<WorkspaceSummary>("/api/workspace"),
   listAgents: () => request<AgentSummary[]>("/api/agents"),
-  listModels: () => request<ModelDescriptor[]>("/api/models"),
+  listModels: () => request<ModelCatalog>("/api/models"),
   listSessions: (agentId: string) =>
     request<ChatSessionSummary[]>(`/api/agents/${agentId}/sessions`),
   getSession: (agentId: string, sessionId: string) =>
     request<ChatSession>(`/api/agents/${agentId}/sessions/${sessionId}`),
+  deleteSession: (agentId: string, sessionId: string) =>
+    request<{ ok: boolean }>(`/api/agents/${agentId}/sessions/${sessionId}`, {
+      method: "DELETE",
+    }),
   listSkills: (agentId: string) =>
     request<SkillDescriptor[]>(`/api/agents/${agentId}/skills`),
   analyzeMemory: (
@@ -119,6 +123,20 @@ export const api = {
       `/api/orchestrator/sessions/${sessionId}/cancel`,
       {
         method: "POST",
+      }
+    ),
+  restartOrchestratorSession: (sessionId: string) =>
+    request<OrchestratorSession>(
+      `/api/orchestrator/sessions/${sessionId}/restart`,
+      {
+        method: "POST",
+      }
+    ),
+  deleteOrchestratorJob: (sessionId: string, jobId: string) =>
+    request<OrchestratorSession>(
+      `/api/orchestrator/sessions/${sessionId}/jobs/${jobId}`,
+      {
+        method: "DELETE",
       }
     ),
 };

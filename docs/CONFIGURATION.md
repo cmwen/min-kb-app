@@ -14,6 +14,10 @@ This project stores configuration and session metadata in three places:
 | `MIN_KB_APP_PORT` | runtime host | `8787` | HTTP port for the local Hono runtime |
 | `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` | runtime orchestrator service | `min-kb-app-orchestrator` | Shared tmux session name that holds one window per orchestrator session |
 | `MIN_KB_APP_RUNTIME_URL` | CLI | `http://localhost:8787` | Base URL for the CLI client |
+| `MIN_KB_APP_LM_STUDIO_BASE_URL` | runtime LM Studio provider | `http://127.0.0.1:1234/v1` | Preferred override for the LM Studio OpenAI-compatible base URL |
+| `LM_STUDIO_BASE_URL` | runtime LM Studio provider | `http://127.0.0.1:1234/v1` | Backward-compatible fallback for the LM Studio base URL |
+| `MIN_KB_APP_LM_STUDIO_MODEL` | runtime LM Studio provider | none | Fallback LM Studio model id to expose when `/models` discovery fails |
+| `LM_STUDIO_MODEL` | runtime LM Studio provider | none | Backward-compatible fallback for the LM Studio model id |
 | `VITE_API_BASE_URL` | web build | empty string | Overrides the web app API root instead of using same-origin `/api` |
 | `VITE_BASE_PATH` | web build | inferred from the GitHub Pages workflow or `/` locally | Overrides the Vite base path for static hosting |
 
@@ -29,12 +33,13 @@ agents/<agent>/history/<YYYY-MM>/<session-id>/RUNTIME.json
 
 That file currently holds:
 
+- `provider`
 - `model`
 - `reasoningEffort` when explicitly chosen
 - `disabledSkills`
 - `mcpServers`
 
-The runtime config is parsed with the shared schema before it is written.
+The runtime config is parsed with the shared schema before it is written. The provider controls which model catalog entries are eligible for the session and whether reasoning effort, skills, and MCP server wiring remain available in the UI.
 
 ## Orchestrator session persistence
 
@@ -50,11 +55,31 @@ agents/copilot-orchestrator/history/<YYYY-MM>/<session-id>/
     <job-id>/
       JOB.json
       DONE.json
+      attachments/
+        <normalized-filename>
       prompt.txt   # only when a prompt is materialized to disk
       run.sh
 ```
 
-`SESSION.md` stays human-readable. `ORCHESTRATOR.json` mirrors mutable tmux/runtime metadata such as the project path, project purpose, tmux window and pane IDs, and the active job. Each delegation folder keeps the queued job record, completion record, optional materialized prompt, and generated shell script used to invoke `copilot --yolo -p`.
+Normal chat sessions can also write `LLM_STATS.json` beside `SESSION.md` and `RUNTIME.json`. That file stores aggregated GitHub Copilot SDK usage totals such as request counts, premium request units, token counts, duration, and the latest quota snapshot for the session.
+
+Normal chat sessions may also include attachment metadata and files:
+
+```text
+agents/<agent>/history/<YYYY-MM>/<session-id>/
+  SESSION.md
+  RUNTIME.json
+  LLM_STATS.json        # optional
+  attachments/
+    <turn-id>/
+      <normalized-filename>
+  turns/
+    <timestamp>-user.md
+    <timestamp>-user.md.json   # only when that turn has an attachment
+    <timestamp>-assistant.md
+```
+
+`SESSION.md` stays human-readable. `ORCHESTRATOR.json` mirrors mutable tmux/runtime metadata such as the project path, project purpose, tmux window and pane IDs, active job, discovered custom agents, selected custom agent, and accumulated premium request usage for tmux-backed delegations. Each delegation folder keeps the queued job record, completion record, optional uploaded attachment, optional materialized prompt, and generated shell script used to invoke `copilot --model ... --yolo -p`.
 
 ## Browser-local persistence
 
@@ -82,11 +107,19 @@ For normal chat agents, the runtime config a user sees depends on what they are 
 
 For the built-in orchestrator agent, creating a new session writes `SESSION.md` and `ORCHESTRATOR.json` immediately because the session must exist before any tmux window or delegated job can be tracked.
 
+## Attachments
+
+The web UI currently accepts a single file per chat send or orchestrator delegation, capped at 5 MB. Uploaded files are stored in the session directory, while the turn or job metadata keeps the attachment id, original filename, content type, byte size, media classification, and relative path under the store root.
+
+Chat attachments are exposed back through `/api/agents/:agentId/sessions/:sessionId/attachments/:attachmentId`. Images are served with `Content-Disposition: inline`; other files are served as downloads.
+
 ## Model catalog behavior
 
-The runtime uses the GitHub Copilot SDK `listModels()` API to discover available models and metadata, including supported reasoning effort options. The app also ships a bundled fallback model catalog so the selector can stay populated if live model discovery fails.
+The runtime exposes a provider-aware model catalog with `defaultProvider`, `providers`, and `models`. The GitHub Copilot provider uses the Copilot SDK `listModels()` API to discover models and metadata, including supported reasoning effort options and premium request billing multipliers when the SDK exposes them. The app also ships a bundled Copilot fallback catalog so the selector can stay populated if live discovery fails.
 
-The web UI shows the reasoning effort selector only when the currently selected model exposes supported reasoning effort values.
+The LM Studio provider discovers local models from its OpenAI-compatible `/models` endpoint, using the configured base URL and optional fallback model id when discovery fails.
+
+The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities.
 
 ## MCP JSON
 
@@ -105,6 +138,7 @@ The GitHub Pages workflow builds the web app with a repository-relative base pat
 
 - `apps/runtime/src/index.ts`
 - `apps/runtime/src/orchestrator.ts`
+- `docs/API.md`
 - `packages/copilot-runtime/src/index.ts`
 - `packages/min-kb-store/src/orchestrator.ts`
 - `packages/min-kb-store/src/sessions.ts`
