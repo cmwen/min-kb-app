@@ -14,17 +14,20 @@ import {
   type SkillDescriptor,
   type WorkspaceSummary,
 } from "@min-kb-app/shared";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import {
+  clearDraft,
   loadDraft,
   loadQueue,
+  loadSessionNotificationAcks,
   loadSnapshot,
   loadUiPreferences,
   type QueuedMessage,
   saveDraft,
   saveQueue,
+  saveSessionNotificationAcks,
   saveSnapshot,
   saveUiPreferences,
 } from "./cache";
@@ -36,6 +39,7 @@ import {
 import { AgentRail } from "./components/AgentRail";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { CommandPalette } from "./components/CommandPalette";
+import { DangerConfirmModal } from "./components/DangerConfirmModal";
 import { MemoryAnalysisModal } from "./components/MemoryAnalysisModal";
 import { OrchestratorPane } from "./components/OrchestratorPane";
 import { RuntimeControls } from "./components/RuntimeControls";
@@ -48,6 +52,11 @@ import {
   normalizeConfigForModel,
 } from "./model-config";
 import {
+  acknowledgeSessionNotification,
+  getSessionNotificationKey,
+  hasSessionNotification,
+} from "./session-notifications";
+import {
   clampSidebarWidth,
   getVisibleModels,
   resolveTheme,
@@ -56,9 +65,38 @@ import {
 const DEFAULT_MCP_TEXT = JSON.stringify({}, null, 2);
 const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
 
+type DangerAction =
+  | {
+      kind: "chat-session";
+      agentId: string;
+      sessionId: string;
+      title: string;
+      turnCount: number;
+      lastActivity?: string;
+    }
+  | {
+      kind: "orchestrator-session";
+      sessionId: string;
+      title: string;
+      queuedJobCount: number;
+      delegatedJobCount: number;
+      status: OrchestratorSession["status"];
+    }
+  | {
+      kind: "orchestrator-job";
+      sessionId: string;
+      jobId: string;
+      promptPreview: string;
+      submittedAt: string;
+    };
+
 export default function App() {
   const cachedSnapshot = useMemo(() => loadSnapshot(), []);
   const cachedUiPreferences = useMemo(() => loadUiPreferences(), []);
+  const cachedSessionNotificationAcks = useMemo(
+    () => loadSessionNotificationAcks(),
+    []
+  );
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | undefined>(
     cachedSnapshot.workspace
@@ -92,6 +130,9 @@ export default function App() {
   const [mcpText, setMcpText] = useState(DEFAULT_MCP_TEXT);
   const [mcpError, setMcpError] = useState<string | undefined>();
   const [uiPreferences, setUiPreferences] = useState(cachedUiPreferences);
+  const [sessionNotificationAcks, setSessionNotificationAcks] = useState(
+    cachedSessionNotificationAcks
+  );
   const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -107,6 +148,8 @@ export default function App() {
   const [memoryAnalysis, setMemoryAnalysis] = useState<
     MemoryAnalysisResponse | undefined
   >();
+  const [dangerAction, setDangerAction] = useState<DangerAction | undefined>();
+  const [deletePending, setDeletePending] = useState(false);
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const isOrchestratorAgent =
@@ -129,6 +172,15 @@ export default function App() {
   const selectedOrchestratorSession = selectedSessionId
     ? orchestratorSessionsById[selectedSessionId]
     : undefined;
+  const selectedSessionSummary =
+    selectedAgentId && selectedSessionId
+      ? (sessionsByAgent[selectedAgentId] ?? []).find(
+          (session) => session.sessionId === selectedSessionId
+        )
+      : undefined;
+  const selectedOrchestratorQueuedJobCount =
+    selectedOrchestratorSession?.jobs.filter((job) => job.status === "queued")
+      .length ?? 0;
   const selectedOrchestratorModel = selectedOrchestratorSession
     ? findModelDescriptor(models, selectedOrchestratorSession.model)
     : undefined;
@@ -169,6 +221,17 @@ export default function App() {
       selectedAgentId,
       selectedSessionId,
     ]
+  );
+  const notificationSessionIds = useMemo(
+    () =>
+      new Set(
+        sessions
+          .filter((session) =>
+            hasSessionNotification(session, sessionNotificationAcks)
+          )
+          .map((session) => session.sessionId)
+      ),
+    [sessionNotificationAcks, sessions]
   );
   const orchestratorProjectPathSuggestions = useMemo(() => {
     const suggestions = new Set<string>();
@@ -223,12 +286,32 @@ export default function App() {
   }, [uiPreferences]);
 
   useEffect(() => {
+    saveSessionNotificationAcks(sessionNotificationAcks);
+  }, [sessionNotificationAcks]);
+
+  useEffect(() => {
     setDraft(loadDraft(draftKey));
   }, [draftKey]);
 
   useEffect(() => {
     saveDraft(draftKey, draft);
   }, [draftKey, draft]);
+
+  useEffect(() => {
+    if (!selectedSessionSummary) {
+      return;
+    }
+
+    setSessionNotificationAcks((current) =>
+      acknowledgeSessionNotification(selectedSessionSummary, current)
+    );
+  }, [
+    selectedSessionSummary?.agentId,
+    selectedSessionSummary?.completionStatus,
+    selectedSessionSummary?.lastTurnAt,
+    selectedSessionSummary?.sessionId,
+    selectedSessionSummary?.startedAt,
+  ]);
 
   useEffect(() => {
     if (!selectedAgentId) {
@@ -349,6 +432,14 @@ export default function App() {
         if (settingsOpen) {
           event.preventDefault();
           setSettingsOpen(false);
+          return;
+        }
+
+        if (dangerAction) {
+          event.preventDefault();
+          if (!deletePending) {
+            setDangerAction(undefined);
+          }
         }
         return;
       }
@@ -372,7 +463,7 @@ export default function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [commandPaletteOpen, settingsOpen, models]);
+  }, [commandPaletteOpen, dangerAction, deletePending, settingsOpen, models]);
 
   async function bootstrap() {
     try {
@@ -724,6 +815,110 @@ export default function App() {
     }
   }
 
+  function promptDeleteSelectedSession() {
+    if (!selectedAgentId || !selectedSessionId) {
+      return;
+    }
+
+    if (isOrchestratorAgent) {
+      if (!selectedOrchestratorSession) {
+        return;
+      }
+      setDangerAction({
+        kind: "orchestrator-session",
+        sessionId: selectedOrchestratorSession.sessionId,
+        title: selectedOrchestratorSession.title,
+        queuedJobCount: selectedOrchestratorQueuedJobCount,
+        delegatedJobCount: selectedOrchestratorSession.jobs.length,
+        status: selectedOrchestratorSession.status,
+      });
+      return;
+    }
+
+    const selectedSummary = sessions.find(
+      (session) => session.sessionId === selectedSessionId
+    );
+    if (!selectedThread && !selectedSummary) {
+      return;
+    }
+
+    setDangerAction({
+      kind: "chat-session",
+      agentId: selectedAgentId,
+      sessionId: selectedSessionId,
+      title: selectedThread?.title ?? selectedSummary?.title ?? "Chat session",
+      turnCount:
+        selectedThread?.turns.length ?? selectedSummary?.turnCount ?? 0,
+      lastActivity:
+        selectedThread?.turns.at(-1)?.createdAt ??
+        selectedSummary?.lastTurnAt ??
+        selectedThread?.startedAt ??
+        selectedSummary?.startedAt,
+    });
+  }
+
+  function promptDeleteQueuedJob(jobId: string) {
+    if (!selectedOrchestratorSession) {
+      return;
+    }
+
+    const job = selectedOrchestratorSession.jobs.find(
+      (item) => item.jobId === jobId
+    );
+    if (!job || job.status !== "queued") {
+      return;
+    }
+
+    setDangerAction({
+      kind: "orchestrator-job",
+      sessionId: selectedOrchestratorSession.sessionId,
+      jobId,
+      promptPreview: job.promptPreview,
+      submittedAt: job.submittedAt,
+    });
+  }
+
+  async function handleConfirmDangerAction() {
+    if (!dangerAction) {
+      return;
+    }
+
+    setDeletePending(true);
+    setError(undefined);
+    try {
+      switch (dangerAction.kind) {
+        case "chat-session":
+          await api.deleteSession(dangerAction.agentId, dangerAction.sessionId);
+          removeChatSessionLocally(
+            dangerAction.agentId,
+            dangerAction.sessionId
+          );
+          break;
+        case "orchestrator-session":
+          await api.deleteSession(
+            ORCHESTRATOR_AGENT_ID,
+            dangerAction.sessionId
+          );
+          removeOrchestratorSessionLocally(dangerAction.sessionId);
+          break;
+        case "orchestrator-job": {
+          const session = await api.deleteOrchestratorJob(
+            dangerAction.sessionId,
+            dangerAction.jobId
+          );
+          storeOrchestratorSession(session);
+          break;
+        }
+      }
+      setDangerAction(undefined);
+      setOffline(false);
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError));
+    } finally {
+      setDeletePending(false);
+    }
+  }
+
   function handleCommandPaletteSelect(item: CommandPaletteItem) {
     setCommandPaletteOpen(false);
 
@@ -811,6 +1006,64 @@ export default function App() {
     });
   }
 
+  function removeChatSessionLocally(agentId: string, sessionId: string) {
+    clearDraft(`${agentId}:${sessionId}`);
+    setSessionNotificationAcks((current) =>
+      clearSessionNotificationAck(current, agentId, sessionId)
+    );
+    setThreadsByKey((current) => {
+      const next = { ...current };
+      delete next[`${agentId}:${sessionId}`];
+      return next;
+    });
+    setQueue((current) =>
+      current.filter(
+        (item) => !(item.agentId === agentId && item.sessionId === sessionId)
+      )
+    );
+
+    const remainingSessions = (sessionsByAgent[agentId] ?? []).filter(
+      (session) => session.sessionId !== sessionId
+    );
+    setSessionsByAgent((current) => ({
+      ...current,
+      [agentId]: remainingSessions,
+    }));
+
+    if (selectedAgentId === agentId && selectedSessionId === sessionId) {
+      setSelectedSessionId(remainingSessions[0]?.sessionId);
+      setMemoryAnalysis(undefined);
+      if (!remainingSessions[0]) {
+        setConfig(normalizeConfigForModel(createDefaultConfig(), models));
+        setMcpText(DEFAULT_MCP_TEXT);
+        focusComposer();
+      }
+    }
+  }
+
+  function removeOrchestratorSessionLocally(sessionId: string) {
+    setSessionNotificationAcks((current) =>
+      clearSessionNotificationAck(current, ORCHESTRATOR_AGENT_ID, sessionId)
+    );
+    setOrchestratorSessionsById((current) => {
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+
+    const remainingSessions = (
+      sessionsByAgent[ORCHESTRATOR_AGENT_ID] ?? []
+    ).filter((session) => session.sessionId !== sessionId);
+    setSessionsByAgent((current) => ({
+      ...current,
+      [ORCHESTRATOR_AGENT_ID]: remainingSessions,
+    }));
+
+    if (selectedSessionId === sessionId) {
+      setSelectedSessionId(remainingSessions[0]?.sessionId);
+    }
+  }
+
   return (
     <div
       className={
@@ -835,11 +1088,16 @@ export default function App() {
           <>
             <div
               className="session-sidebar-shell"
-              style={{ width: `${uiPreferences.sidebarWidth}px` }}
+              style={
+                {
+                  "--sidebar-width": `${uiPreferences.sidebarWidth}px`,
+                } as CSSProperties
+              }
             >
               <SessionSidebar
                 agent={selectedAgent}
                 sessions={sessions}
+                notificationSessionIds={notificationSessionIds}
                 selectedSessionId={selectedSessionId}
                 sessionLabel={isOrchestratorAgent ? "session" : "chat"}
                 newSessionLabel={
@@ -901,6 +1159,10 @@ export default function App() {
                         selectedOrchestratorSession.model
                       } • ${selectedOrchestratorSession.jobs.length} delegated job${
                         selectedOrchestratorSession.jobs.length === 1 ? "" : "s"
+                      }${
+                        selectedOrchestratorQueuedJobCount > 0
+                          ? ` • ${selectedOrchestratorQueuedJobCount} queued`
+                          : ""
                       } • ${selectedOrchestratorSession.status}`
                     : orchestratorCapabilities
                       ? `Default project path: ${orchestratorCapabilities.defaultProjectPath}`
@@ -931,13 +1193,26 @@ export default function App() {
                     }
                     title={
                       hasMemorySkills
-                        ? "Analyze this chat with GPT-4.1 and memory skills"
+                        ? "Analyze this chat with GPT-5 mini and memory skills"
                         : "No memory-related skills detected for this agent"
                     }
                   >
                     {analyzingMemory ? "Analyzing..." : "Analyze memory"}
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  className="ghost-button danger-button"
+                  onClick={promptDeleteSelectedSession}
+                  disabled={!selectedSessionId || busy || deletePending}
+                  title={
+                    isOrchestratorAgent
+                      ? "Delete the selected orchestrator session"
+                      : "Delete the selected chat history"
+                  }
+                >
+                  {isOrchestratorAgent ? "Delete session" : "Delete chat"}
+                </button>
                 <button
                   type="button"
                   className="ghost-button"
@@ -991,7 +1266,7 @@ export default function App() {
           ) : null}
 
           {queue.length > 0 ? (
-            <section className="queue-banner">
+            <section className="queue-banner" aria-label="Queued messages">
               <strong>{queue.length} queued message(s)</strong>
               <div className="queue-list">
                 {queue.map((message) => (
@@ -1001,8 +1276,12 @@ export default function App() {
                     className="queued-item"
                     onClick={() => void handleRetryQueuedMessage(message)}
                   >
-                    Retry {message.agentId} -{" "}
-                    {new Date(message.createdAt).toLocaleTimeString()}
+                    <span className="queued-item-title">
+                      Retry {message.agentId}
+                    </span>
+                    <span className="queued-item-meta">
+                      {new Date(message.createdAt).toLocaleTimeString()}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1031,6 +1310,8 @@ export default function App() {
                 void handleSendOrchestratorInput(input, submit)
               }
               onCancelJob={() => void handleCancelOrchestratorJob()}
+              onDeleteSession={promptDeleteSelectedSession}
+              onDeleteQueuedJob={promptDeleteQueuedJob}
               onSessionUpdate={(session) => storeOrchestratorSession(session)}
             />
           ) : (
@@ -1124,6 +1405,20 @@ export default function App() {
         result={memoryAnalysis}
         onClose={() => setMemoryAnalysis(undefined)}
       />
+      {dangerAction ? (
+        <DangerConfirmModal
+          open
+          title={getDangerTitle(dangerAction)}
+          description={getDangerDescription(dangerAction)}
+          details={getDangerDetails(dangerAction)}
+          warning={getDangerWarning(dangerAction)}
+          acknowledgeLabel={getDangerAcknowledgeLabel(dangerAction)}
+          confirmLabel={getDangerConfirmLabel(dangerAction)}
+          busy={deletePending}
+          onClose={() => setDangerAction(undefined)}
+          onConfirm={() => void handleConfirmDangerAction()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1147,6 +1442,7 @@ function buildSessionSummary(thread: ChatSession): ChatSessionSummary {
     turnCount: thread.turnCount,
     lastTurnAt: thread.lastTurnAt,
     runtimeConfig: thread.runtimeConfig,
+    completionStatus: thread.completionStatus,
   };
 }
 
@@ -1162,7 +1458,104 @@ function buildOrchestratorListSummary(
     manifestPath: session.manifestPath,
     turnCount: session.jobs.length,
     lastTurnAt: session.updatedAt,
+    completionStatus:
+      session.status === "completed" || session.status === "failed"
+        ? session.status
+        : undefined,
   };
+}
+
+function clearSessionNotificationAck(
+  acknowledgements: Record<string, string>,
+  agentId: string,
+  sessionId: string
+): Record<string, string> {
+  const key = getSessionNotificationKey(agentId, sessionId);
+  if (!(key in acknowledgements)) {
+    return acknowledgements;
+  }
+
+  const next = { ...acknowledgements };
+  delete next[key];
+  return next;
+}
+
+function getDangerTitle(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+      return "Delete this chat history?";
+    case "orchestrator-session":
+      return "Delete this orchestrator session?";
+    case "orchestrator-job":
+      return "Delete this queued task?";
+  }
+}
+
+function getDangerDescription(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+      return `Remove "${action.title}" from this agent's saved conversation history.`;
+    case "orchestrator-session":
+      return `Remove "${action.title}" and all of its delegated work.`;
+    case "orchestrator-job":
+      return "Remove this queued task before it starts running in tmux.";
+  }
+}
+
+function getDangerDetails(action: DangerAction): string[] {
+  switch (action.kind) {
+    case "chat-session":
+      return [
+        `${action.turnCount} saved message${action.turnCount === 1 ? "" : "s"}`,
+        action.lastActivity
+          ? `Last activity ${formatTimestamp(action.lastActivity)}`
+          : "Last activity unavailable",
+      ];
+    case "orchestrator-session":
+      return [
+        `${action.delegatedJobCount} delegated job${action.delegatedJobCount === 1 ? "" : "s"} total`,
+        `${action.queuedJobCount} queued task${action.queuedJobCount === 1 ? "" : "s"} will be removed`,
+        `Current status: ${action.status}`,
+      ];
+    case "orchestrator-job":
+      return [
+        action.promptPreview,
+        `Queued ${formatTimestamp(action.submittedAt)}`,
+      ];
+  }
+}
+
+function getDangerWarning(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+      return "This permanently removes the session manifest, turns, cached draft, and any offline queued retries for this chat.";
+    case "orchestrator-session":
+      return "This permanently removes the saved session, stops its tmux window when possible, and deletes every queued task in that session.";
+    case "orchestrator-job":
+      return "This permanently removes the queued task from the session backlog. Running and completed jobs stay untouched.";
+  }
+}
+
+function getDangerAcknowledgeLabel(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+      return "I understand this chat history cannot be restored.";
+    case "orchestrator-session":
+      return "I understand this session and its queued work cannot be restored.";
+    case "orchestrator-job":
+      return "I understand this queued task will be removed before it runs.";
+  }
+}
+
+function getDangerConfirmLabel(action: DangerAction): string {
+  switch (action.kind) {
+    case "chat-session":
+      return "Delete chat history";
+    case "orchestrator-session":
+      return "Delete session";
+    case "orchestrator-job":
+      return "Delete queued task";
+  }
 }
 
 function buildTitleFromPrompt(prompt: string): string {
@@ -1182,4 +1575,18 @@ function isOfflineError(error: unknown): boolean {
 
 function isMemorySkillName(name: string): boolean {
   return /memory|working-memory|short-term|long-term/i.test(name);
+}
+
+function formatTimestamp(timestamp: string): string {
+  const value = new Date(timestamp);
+  if (Number.isNaN(value.getTime())) {
+    return timestamp;
+  }
+
+  return value.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
