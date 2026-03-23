@@ -6,6 +6,7 @@ import type {
   ChatSessionSummary,
   CopilotCustomAgent,
   OrchestratorJob,
+  OrchestratorSchedule,
   OrchestratorSession,
   OrchestratorSessionStatus,
   OrchestratorSessionSummary,
@@ -18,6 +19,7 @@ import {
   copilotCustomAgentSchema,
   DEFAULT_CHAT_MODEL,
   orchestratorJobSchema,
+  orchestratorScheduleSchema,
   orchestratorSessionSchema,
   orchestratorSessionSummarySchema,
   premiumUsageTotalsSchema,
@@ -30,6 +32,7 @@ import {
   ensureTrailingNewline,
   normalizeAgentId,
   pathExists,
+  readDirNames,
   readOptionalFile,
   slugify,
   toPosixRelative,
@@ -44,6 +47,8 @@ const ORCHESTRATOR_JOB_FILENAME = "JOB.json";
 const ORCHESTRATOR_JOB_DONE_FILENAME = "DONE.json";
 const ORCHESTRATOR_TERMINAL_LOG = "terminal/pane.log";
 const ORCHESTRATOR_JOBS_DIRECTORY = "delegations";
+const ORCHESTRATOR_SCHEDULES_DIRECTORY = "schedules";
+const ORCHESTRATOR_SCHEDULE_FILENAME = "SCHEDULE.json";
 const ORCHESTRATOR_SESSION_HEADER = "# Orchestrator Session: ";
 
 interface StoredOrchestratorJobCompletion {
@@ -80,10 +85,27 @@ export interface CreateOrchestratorJobInput {
   promptPreview: string;
   promptMode: OrchestratorJob["promptMode"];
   promptPath?: string;
+  outputPath?: string;
   attachment?: AttachmentUpload;
   customAgentId?: string;
+  scheduleId?: string;
   premiumUsage?: PremiumUsage;
   submittedAt?: string;
+}
+
+export interface CreateOrchestratorScheduleInput {
+  sessionId: string;
+  title: string;
+  prompt: string;
+  frequency: OrchestratorSchedule["frequency"];
+  timeOfDay: string;
+  timezone: string;
+  dayOfWeek?: OrchestratorSchedule["dayOfWeek"];
+  dayOfMonth?: number;
+  customAgentId?: string;
+  emailTo?: string;
+  enabled?: boolean;
+  nextRunAt: string;
 }
 
 export async function listOrchestratorSessions(
@@ -253,9 +275,11 @@ export async function createOrchestratorJob(
   const job = orchestratorJobSchema.parse({
     jobId,
     sessionId,
+    scheduleId: input.scheduleId,
     promptPreview: input.promptPreview,
     promptMode: input.promptMode,
     promptPath: input.promptPath,
+    outputPath: input.outputPath,
     attachment,
     customAgentId: input.customAgentId,
     premiumUsage: input.premiumUsage,
@@ -320,6 +344,100 @@ export async function writeOrchestratorJobCompletion(
     `${JSON.stringify(completion, null, 2)}\n`,
     "utf8"
   );
+}
+
+export async function listOrchestratorSchedules(
+  workspace: MinKbWorkspace,
+  options?: { sessionId?: string }
+): Promise<OrchestratorSchedule[]> {
+  const schedulesRoot = orchestratorSchedulesRoot(workspace);
+  const scheduleIds = await readDirNames(schedulesRoot);
+  const schedules = await Promise.all(
+    scheduleIds.map((scheduleId) =>
+      getOrchestratorSchedule(workspace, scheduleId)
+    )
+  );
+  const filtered = options?.sessionId
+    ? schedules.filter((schedule) => schedule.sessionId === options.sessionId)
+    : schedules;
+  return filtered.sort((left, right) =>
+    left.nextRunAt.localeCompare(right.nextRunAt)
+  );
+}
+
+export async function getOrchestratorSchedule(
+  workspace: MinKbWorkspace,
+  scheduleId: string
+): Promise<OrchestratorSchedule> {
+  const schedulePath = resolveOrchestratorSchedulePath(workspace, scheduleId);
+  const raw = await readOptionalFile(schedulePath);
+  if (!raw) {
+    throw new Error(`Orchestrator schedule not found: ${scheduleId}`);
+  }
+  return orchestratorScheduleSchema.parse(JSON.parse(raw));
+}
+
+export async function createOrchestratorSchedule(
+  workspace: MinKbWorkspace,
+  input: CreateOrchestratorScheduleInput
+): Promise<OrchestratorSchedule> {
+  const createdAt = new Date().toISOString();
+  const scheduleId = `${slugify(input.title)}-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  const schedule = orchestratorScheduleSchema.parse({
+    scheduleId,
+    sessionId: input.sessionId,
+    title: input.title.trim(),
+    prompt: input.prompt.trim(),
+    frequency: input.frequency,
+    timeOfDay: input.timeOfDay,
+    timezone: input.timezone.trim(),
+    dayOfWeek: input.dayOfWeek,
+    dayOfMonth: input.dayOfMonth,
+    customAgentId: input.customAgentId,
+    emailTo: input.emailTo,
+    enabled: input.enabled ?? true,
+    createdAt,
+    updatedAt: createdAt,
+    nextRunAt: input.nextRunAt,
+    totalRuns: 0,
+    failedRuns: 0,
+  });
+  await writeOrchestratorSchedule(workspace, schedule);
+  return schedule;
+}
+
+export async function updateOrchestratorSchedule(
+  workspace: MinKbWorkspace,
+  scheduleId: string,
+  updates: Partial<OrchestratorSchedule>
+): Promise<OrchestratorSchedule> {
+  const current = await getOrchestratorSchedule(workspace, scheduleId);
+  const next = orchestratorScheduleSchema.parse({
+    ...current,
+    ...updates,
+    scheduleId: current.scheduleId,
+    sessionId: updates.sessionId ?? current.sessionId,
+    createdAt: current.createdAt,
+    updatedAt: updates.updatedAt ?? new Date().toISOString(),
+  });
+  await writeOrchestratorSchedule(workspace, next);
+  return next;
+}
+
+export async function deleteOrchestratorSchedule(
+  workspace: MinKbWorkspace,
+  scheduleId: string
+): Promise<void> {
+  const scheduleDirectory = resolveOrchestratorScheduleDirectory(
+    workspace,
+    scheduleId
+  );
+  if (!(await pathExists(scheduleDirectory))) {
+    throw new Error(
+      `Cannot delete missing orchestrator schedule: ${scheduleId}`
+    );
+  }
+  await fs.rm(scheduleDirectory, { recursive: true, force: true });
 }
 
 export async function readOrchestratorTerminalChunk(
@@ -430,6 +548,14 @@ export function orchestratorHistoryRoot(workspace: MinKbWorkspace): string {
     workspace.agentsRoot,
     normalizeAgentId(ORCHESTRATOR_AGENT_ID),
     "history"
+  );
+}
+
+export function orchestratorSchedulesRoot(workspace: MinKbWorkspace): string {
+  return path.join(
+    workspace.agentsRoot,
+    normalizeAgentId(ORCHESTRATOR_AGENT_ID),
+    ORCHESTRATOR_SCHEDULES_DIRECTORY
   );
 }
 
@@ -704,6 +830,22 @@ async function readOrchestratorJobCompletion(
   return JSON.parse(raw) as StoredOrchestratorJobCompletion;
 }
 
+async function writeOrchestratorSchedule(
+  workspace: MinKbWorkspace,
+  schedule: OrchestratorSchedule
+): Promise<void> {
+  const scheduleDirectory = resolveOrchestratorScheduleDirectory(
+    workspace,
+    schedule.scheduleId
+  );
+  await fs.mkdir(scheduleDirectory, { recursive: true });
+  await fs.writeFile(
+    resolveOrchestratorSchedulePath(workspace, schedule.scheduleId),
+    `${JSON.stringify(schedule, null, 2)}\n`,
+    "utf8"
+  );
+}
+
 async function readTerminalTail(
   sessionDirectory: string,
   maxBytes = 64_000
@@ -762,6 +904,23 @@ async function findOrchestratorJobPath(
     ORCHESTRATOR_JOB_FILENAME
   );
   return (await pathExists(jobPath)) ? jobPath : undefined;
+}
+
+function resolveOrchestratorScheduleDirectory(
+  workspace: MinKbWorkspace,
+  scheduleId: string
+): string {
+  return path.join(orchestratorSchedulesRoot(workspace), scheduleId);
+}
+
+function resolveOrchestratorSchedulePath(
+  workspace: MinKbWorkspace,
+  scheduleId: string
+): string {
+  return path.join(
+    resolveOrchestratorScheduleDirectory(workspace, scheduleId),
+    ORCHESTRATOR_SCHEDULE_FILENAME
+  );
 }
 
 function humanizeStatus(status: OrchestratorSessionStatus): string {

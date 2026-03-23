@@ -9,6 +9,9 @@ import type {
   ModelCatalog,
   OrchestratorCapabilities,
   OrchestratorDelegateRequest,
+  OrchestratorSchedule,
+  OrchestratorScheduleCreateRequest,
+  OrchestratorScheduleUpdateRequest,
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
@@ -67,6 +70,12 @@ export const api = {
     ),
   getOrchestratorCapabilities: () =>
     request<OrchestratorCapabilities>("/api/orchestrator/capabilities"),
+  listOrchestratorSchedules: (sessionId?: string) =>
+    request<OrchestratorSchedule[]>(
+      sessionId
+        ? `/api/orchestrator/schedules?sessionId=${encodeURIComponent(sessionId)}`
+        : "/api/orchestrator/schedules"
+    ),
   listOrchestratorSessions: () =>
     request<OrchestratorSession[]>("/api/orchestrator/sessions"),
   getOrchestratorSession: (sessionId: string) =>
@@ -139,6 +148,31 @@ export const api = {
         method: "DELETE",
       }
     ),
+  createOrchestratorSchedule: (
+    requestBody: OrchestratorScheduleCreateRequest
+  ) =>
+    request<OrchestratorSchedule>("/api/orchestrator/schedules", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }),
+  updateOrchestratorSchedule: (
+    scheduleId: string,
+    requestBody: OrchestratorScheduleUpdateRequest
+  ) =>
+    request<OrchestratorSchedule>(`/api/orchestrator/schedules/${scheduleId}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }),
+  deleteOrchestratorSchedule: (scheduleId: string) =>
+    request<{ ok: boolean }>(`/api/orchestrator/schedules/${scheduleId}`, {
+      method: "DELETE",
+    }),
 };
 
 async function request<T>(resource: string, init?: RequestInit): Promise<T> {

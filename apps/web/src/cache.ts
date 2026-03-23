@@ -2,12 +2,17 @@ import type {
   AgentSummary,
   ChatProviderDescriptor,
   ChatRequest,
+  ChatRuntimeConfig,
   ChatSession,
   ChatSessionSummary,
   ModelDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
-import { DEFAULT_CHAT_PROVIDER } from "@min-kb-app/shared";
+import {
+  chatRuntimeConfigSchema,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_CHAT_PROVIDER,
+} from "@min-kb-app/shared";
 import {
   normalizeSessionNotificationAcks,
   type SessionNotificationAcks,
@@ -23,6 +28,7 @@ const QUEUE_KEY = "min-kb-app:queue";
 const DRAFT_PREFIX = "min-kb-app:draft:";
 const UI_PREFERENCES_KEY = "min-kb-app:ui-preferences";
 const SESSION_NOTIFICATION_ACKS_KEY = "min-kb-app:session-notification-acks";
+const APP_STATE_KEY = "min-kb-app:app-state";
 
 export interface CachedSnapshot {
   workspace?: WorkspaceSummary;
@@ -41,6 +47,14 @@ export interface QueuedMessage {
   title?: string;
   request: ChatRequest;
   createdAt: string;
+}
+
+export interface CachedAppState {
+  selectedAgentId?: string;
+  selectedSessionId?: string;
+  preferNewSession: boolean;
+  draftConfig: ChatRuntimeConfig;
+  draftMcpText: string;
 }
 
 export function loadSnapshot(): CachedSnapshot {
@@ -149,4 +163,74 @@ export function saveSessionNotificationAcks(
     SESSION_NOTIFICATION_ACKS_KEY,
     JSON.stringify(acknowledgements)
   );
+}
+
+export function createDefaultAppState(): CachedAppState {
+  return {
+    preferNewSession: false,
+    draftConfig: {
+      provider: DEFAULT_CHAT_PROVIDER,
+      model: DEFAULT_CHAT_MODEL,
+      disabledSkills: [],
+      mcpServers: {},
+    },
+    draftMcpText: JSON.stringify({}, null, 2),
+  };
+}
+
+export function loadAppState(): CachedAppState {
+  const raw = localStorage.getItem(APP_STATE_KEY);
+  if (!raw) {
+    return createDefaultAppState();
+  }
+
+  try {
+    return normalizeAppState(JSON.parse(raw));
+  } catch {
+    return createDefaultAppState();
+  }
+}
+
+export function saveAppState(state: CachedAppState): void {
+  localStorage.setItem(APP_STATE_KEY, JSON.stringify(state));
+}
+
+function normalizeAppState(raw: unknown): CachedAppState {
+  const defaults = createDefaultAppState();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return defaults;
+  }
+
+  const candidate = raw as {
+    selectedAgentId?: unknown;
+    selectedSessionId?: unknown;
+    preferNewSession?: unknown;
+    draftConfig?: unknown;
+    draftMcpText?: unknown;
+  };
+  const parsedConfig = chatRuntimeConfigSchema.safeParse(candidate.draftConfig);
+  const draftConfig = parsedConfig.success
+    ? parsedConfig.data
+    : defaults.draftConfig;
+  const preferNewSession =
+    typeof candidate.preferNewSession === "boolean"
+      ? candidate.preferNewSession
+      : defaults.preferNewSession;
+
+  return {
+    selectedAgentId:
+      typeof candidate.selectedAgentId === "string"
+        ? candidate.selectedAgentId
+        : undefined,
+    selectedSessionId:
+      !preferNewSession && typeof candidate.selectedSessionId === "string"
+        ? candidate.selectedSessionId
+        : undefined,
+    preferNewSession,
+    draftConfig,
+    draftMcpText:
+      typeof candidate.draftMcpText === "string"
+        ? candidate.draftMcpText
+        : JSON.stringify(draftConfig.mcpServers, null, 2),
+  };
 }

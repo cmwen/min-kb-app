@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css";
 import { registerSW } from "virtual:pwa-register";
 import React from "react";
 import ReactDOM from "react-dom/client";

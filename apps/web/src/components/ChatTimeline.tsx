@@ -1,7 +1,7 @@
 import type { ChatSession } from "@min-kb-app/shared";
-import ReactMarkdown from "react-markdown";
 import { API_ROOT } from "../api";
 import { formatFileSize } from "../attachments";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 
 interface ChatTimelineProps {
   thread?: ChatSession;
@@ -41,7 +41,7 @@ export function ChatTimeline(props: ChatTimelineProps) {
             <span>{turn.sender}</span>
             <time>{new Date(turn.createdAt).toLocaleString()}</time>
           </header>
-          <ReactMarkdown>{turn.bodyMarkdown}</ReactMarkdown>
+          <MarkdownRenderer>{turn.bodyMarkdown}</MarkdownRenderer>
           {turn.attachment ? (
             <div className="message-attachment">
               {turn.attachment.mediaType === "image" ? (

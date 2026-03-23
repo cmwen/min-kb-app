@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRuntimeService } from "./index";
 
+const { getAgentByIdMock } = vi.hoisted(() => ({
+  getAgentByIdMock: vi.fn(),
+}));
 const createSessionMock = vi.fn();
 const resumeSessionMock = vi.fn();
 const listSessionsMock = vi.fn();
@@ -21,6 +24,7 @@ vi.mock("@github/copilot-sdk", () => ({
 }));
 
 vi.mock("@min-kb-app/min-kb-store", () => ({
+  getAgentById: getAgentByIdMock,
   listAgents: vi.fn(async () => []),
   listSkillsForAgent: vi.fn(async () => []),
   pathExists: vi.fn(async () => false),
@@ -74,6 +78,7 @@ describe("ChatRuntimeService", () => {
     vi.unstubAllGlobals();
     startMock.mockResolvedValue(undefined);
     stopMock.mockResolvedValue(undefined);
+    getAgentByIdMock.mockResolvedValue(undefined);
     listSessionsMock.mockResolvedValue([]);
     listModelsMock.mockResolvedValue([
       {
@@ -337,6 +342,84 @@ describe("ChatRuntimeService", () => {
     expect(result.assistantText).toBe("stored memory analysis");
   });
 
+  it("merges agent runtime MCP defaults with request overrides before opening a Copilot session", async () => {
+    getAgentByIdMock.mockResolvedValue({
+      id: "researcher",
+      kind: "chat",
+      title: "Researcher",
+      description: "Researches topics.",
+      combinedPrompt: "Research carefully.",
+      agentPath: "/tmp/agents/researcher/AGENT.md",
+      defaultSoulPath: "/tmp/agents/default/SOUL.md",
+      historyRoot: "/tmp/agents/researcher/history",
+      workingMemoryRoot: "/tmp/agents/researcher/memory/working",
+      skillRoot: "/tmp/agents/researcher/skills",
+      skillNames: [],
+      sessionCount: 0,
+      runtimeConfig: {
+        provider: "copilot",
+        model: "gpt-4.1",
+        disabledSkills: ["memory-capture"],
+        mcpServers: {
+          playwright: {
+            type: "stdio",
+            command: "npx",
+            args: ["@playwright/mcp@latest", "--headless"],
+            env: {},
+            tools: ["*"],
+          },
+        },
+      },
+    });
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    await runtime.sendMessage({
+      agentId: "researcher",
+      sessionId: "research-session",
+      prompt: "Find recent MCP examples.",
+      config: {
+        provider: "copilot",
+        model: "gpt-4.1",
+        mcpServers: {
+          github: {
+            type: "http",
+            url: "https://api.githubcopilot.com/mcp/",
+            headers: {},
+            tools: ["*"],
+          },
+        },
+      },
+    });
+
+    expect(createSessionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disabledSkills: ["memory-capture"],
+        mcpServers: {
+          playwright: {
+            type: "stdio",
+            command: "npx",
+            args: ["@playwright/mcp@latest", "--headless"],
+            env: {},
+            tools: ["*"],
+          },
+          github: {
+            type: "http",
+            url: "https://api.githubcopilot.com/mcp/",
+            headers: {},
+            tools: ["*"],
+          },
+        },
+      })
+    );
+  });
+
   it("routes LM Studio requests to the OpenAI-compatible endpoints and sends prior turns as chat history", async () => {
     const fetchMock = vi.fn();
     fetchMock.mockResolvedValueOnce(
@@ -451,5 +534,341 @@ describe("ChatRuntimeService", () => {
       })
     );
     expect(result.sessionDiagnostics).toBeUndefined();
+  });
+
+  it("falls back to accumulated assistant deltas when the final assistant message is missing", async () => {
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "assistant.message_delta",
+            data: {
+              messageId: "message-1",
+              deltaContent: "Weekly summary: ",
+            },
+            ephemeral: true,
+          });
+          emit({
+            type: "assistant.message_delta",
+            data: {
+              messageId: "message-1",
+              deltaContent: "three completed tasks.",
+            },
+            ephemeral: true,
+          });
+          emit({
+            type: "session.idle",
+            data: {},
+            ephemeral: true,
+          });
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "delta-only-session",
+      prompt: "Summarize the past week.",
+      config: {
+        provider: "copilot",
+        model: "gpt-4.1",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe("Weekly summary: three completed tasks.");
+  });
+
+  it("prefers a newer delta-only reply over an earlier assistant status message", async () => {
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "assistant.message",
+            data: {
+              content:
+                "I’m going to jump further down the Amazon HTML instead of repeating the top of the page.",
+            },
+          });
+          emit({
+            type: "assistant.message_delta",
+            data: {
+              messageId: "message-2",
+              deltaContent: "Here are three compatible stylus options ",
+            },
+            ephemeral: true,
+          });
+          emit({
+            type: "assistant.message_delta",
+            data: {
+              messageId: "message-2",
+              deltaContent: "with links and prices.",
+            },
+            ephemeral: true,
+          });
+          emit({
+            type: "session.idle",
+            data: {},
+            ephemeral: true,
+          });
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    const result = await runtime.sendMessage({
+      agentId: "researcher",
+      sessionId: "delta-after-status-session",
+      prompt: "Find Bluetooth stylus options with Amazon links and prices.",
+      config: {
+        provider: "copilot",
+        model: "gpt-4.1",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe(
+      "Here are three compatible stylus options with links and prices."
+    );
+  });
+
+  it("waits for tool execution that starts after an initial assistant message", async () => {
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "assistant.message",
+            data: {
+              content:
+                "I’m pulling the last week’s Logseq journal entries now.",
+            },
+          });
+          setTimeout(() => {
+            emit({
+              type: "tool.execution_start",
+              data: {
+                toolCallId: "tool-2",
+                toolName: "read_logseq",
+                arguments: '{"range":"last-week"}',
+              },
+            });
+            emit({
+              type: "tool.execution_complete",
+              data: {
+                toolCallId: "tool-2",
+                success: true,
+                result: {
+                  content: "Loaded seven daily notes.",
+                },
+              },
+            });
+            emit({
+              type: "assistant.message",
+              data: {
+                content:
+                  "Last week you captured seven daily notes focused on planning, bugs, and follow-ups.",
+              },
+            });
+            emit({
+              type: "session.idle",
+              data: {},
+              ephemeral: true,
+            });
+          }, 1700);
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    const result = await runtime.sendMessage({
+      agentId: "logseq",
+      sessionId: "logseq-summary-session",
+      prompt: "Summarize Logseq for the past week.",
+      config: {
+        provider: "copilot",
+        model: "gpt-4.1",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe(
+      "Last week you captured seven daily notes focused on planning, bugs, and follow-ups."
+    );
+    expect(result.sessionDiagnostics?.toolExecutions).toEqual([
+      {
+        toolName: "read_logseq",
+        success: true,
+        content: "Loaded seven daily notes.",
+        memoryTier: undefined,
+      },
+    ]);
+  });
+
+  it("returns an empty assistant message instead of throwing when Copilot settles without content", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "session.idle",
+            data: {},
+            ephemeral: true,
+          });
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    await expect(
+      runtime.sendMessage({
+        agentId: "chat-agent",
+        sessionId: "idle-only-session",
+        prompt: "Summarize the past week.",
+        config: {
+          provider: "copilot",
+          model: "gpt-4.1",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      })
+    ).resolves.toMatchObject({
+      assistantText: "",
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Copilot completed without returning assistant text; saving an empty assistant turn."
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("waits briefly after session.idle so a trailing assistant message is captured", async () => {
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "session.idle",
+            data: {},
+            ephemeral: true,
+          });
+          setTimeout(() => {
+            emit({
+              type: "assistant.message",
+              data: {
+                content: "Bluetooth stylus options loaded from Amazon results.",
+              },
+            });
+          }, 10);
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    await expect(
+      runtime.sendMessage({
+        agentId: "researcher",
+        sessionId: "idle-before-message-session",
+        prompt: "Find Bluetooth stylus options.",
+        config: {
+          provider: "copilot",
+          model: "gpt-4.1",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      })
+    ).resolves.toMatchObject({
+      assistantText: "Bluetooth stylus options loaded from Amazon results.",
+    });
+  });
+
+  it("surfaces a trailing session error instead of saving an empty assistant turn", async () => {
+    createSessionMock.mockResolvedValueOnce(
+      createMockSession({
+        emitAfterSend: (emit) => {
+          emit({
+            type: "session.idle",
+            data: {},
+            ephemeral: true,
+          });
+          setTimeout(() => {
+            emit({
+              type: "session.error",
+              data: {
+                message:
+                  "Playwright MCP server failed before the assistant replied.",
+                stack: "Error: Playwright MCP server failed",
+              },
+            });
+          }, 10);
+        },
+      })
+    );
+
+    const runtime = new ChatRuntimeService({
+      storeRoot: "/tmp",
+      agentsRoot: "/tmp/agents",
+      skillsRoot: "/tmp/skills",
+      copilotConfigDir: "/tmp/.copilot",
+      copilotSkillsRoot: "/tmp/.copilot/skills",
+      memoryRoot: "/tmp/memory",
+    });
+
+    await expect(
+      runtime.sendMessage({
+        agentId: "researcher",
+        sessionId: "idle-before-error-session",
+        prompt: "Find Bluetooth stylus options.",
+        config: {
+          provider: "copilot",
+          model: "gpt-4.1",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      })
+    ).rejects.toThrow(
+      "Playwright MCP server failed before the assistant replied."
+    );
   });
 });

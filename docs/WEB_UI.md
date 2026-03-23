@@ -24,7 +24,7 @@ Normal chat sessions keep session-scoped runtime controls in dropdowns at the to
 
 Switching providers is session-scoped. GitHub Copilot keeps skills, MCP servers, and reasoning effort available; LM Studio exposes a simpler local-model flow and disables controls the provider does not support.
 
-Those choices are still saved with the chat session runtime config and persist to `RUNTIME.json` when a chat is written to disk.
+Those choices are still saved with the chat session runtime config and persist to `RUNTIME.json` when a chat is written to disk. New chats now seed those controls from the selected agent's `RUNTIME.json` defaults when available.
 
 ## Chat attachments
 
@@ -88,6 +88,8 @@ The modal currently includes:
 - keyboard shortcut reference
 
 These settings stay local to the browser through `localStorage`.
+
+The web client also restores the last selected agent or session after a full restart. If the user had started a fresh chat without sending yet, the browser keeps that new-chat selection plus the unsent runtime controls so the workspace comes back in the same state.
 
 ## Command palette
 

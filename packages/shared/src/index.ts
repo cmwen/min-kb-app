@@ -25,25 +25,35 @@ export type ChatProviderDescriptor = z.infer<
 export const reasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh"]);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
-const localMcpServerSchema = z.object({
-  type: z.enum(["local", "stdio"]),
-  command: z.string().min(1),
-  args: z.array(z.string()).default([]),
-  cwd: z.string().optional(),
-  env: z.record(z.string(), z.string()).default({}),
-  tools: z.array(z.string()).default(["*"]),
-  timeout: z.number().int().positive().optional(),
-});
+const localMcpServerSchema = z
+  .object({
+    type: z.enum(["local", "stdio"]).optional(),
+    command: z.string().min(1),
+    args: z.array(z.string()).default([]),
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).default({}),
+    tools: z.array(z.string()).default(["*"]),
+    timeout: z.number().int().positive().optional(),
+  })
+  .transform((value) => ({
+    ...value,
+    type: value.type ?? "stdio",
+  }));
 
-const remoteMcpServerSchema = z.object({
-  type: z.enum(["http", "sse"]),
-  url: z.string().url(),
-  headers: z.record(z.string(), z.string()).default({}),
-  tools: z.array(z.string()).default(["*"]),
-  timeout: z.number().int().positive().optional(),
-});
+const remoteMcpServerSchema = z
+  .object({
+    type: z.enum(["http", "sse"]).optional(),
+    url: z.string().url(),
+    headers: z.record(z.string(), z.string()).default({}),
+    tools: z.array(z.string()).default(["*"]),
+    timeout: z.number().int().positive().optional(),
+  })
+  .transform((value) => ({
+    ...value,
+    type: value.type ?? "http",
+  }));
 
-export const mcpServerConfigSchema = z.discriminatedUnion("type", [
+export const mcpServerConfigSchema = z.union([
   localMcpServerSchema,
   remoteMcpServerSchema,
 ]);
@@ -73,6 +83,41 @@ export const chatRuntimeConfigSchema = z.object({
   mcpServers: z.record(z.string(), mcpServerConfigSchema).default({}),
 });
 export type ChatRuntimeConfig = z.infer<typeof chatRuntimeConfigSchema>;
+
+export const partialChatRuntimeConfigSchema = z.object({
+  provider: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  reasoningEffort: reasoningEffortSchema.optional(),
+  disabledSkills: z.array(z.string()).optional(),
+  mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
+});
+export type PartialChatRuntimeConfig = z.infer<
+  typeof partialChatRuntimeConfigSchema
+>;
+
+export function createDefaultChatRuntimeConfig(): ChatRuntimeConfig {
+  return chatRuntimeConfigSchema.parse({});
+}
+
+export function mergeChatRuntimeConfigs(
+  baseConfig?: Partial<ChatRuntimeConfig>,
+  overrideConfig?: Partial<ChatRuntimeConfig>
+): ChatRuntimeConfig {
+  const base = chatRuntimeConfigSchema.parse(baseConfig ?? {});
+  const override = partialChatRuntimeConfigSchema.parse(overrideConfig ?? {});
+
+  return chatRuntimeConfigSchema.parse({
+    ...base,
+    ...override,
+    disabledSkills: override.disabledSkills ?? base.disabledSkills,
+    mcpServers: override.mcpServers
+      ? {
+          ...base.mcpServers,
+          ...override.mcpServers,
+        }
+      : base.mcpServers,
+  });
+}
 
 function normalizeQuotaCounter(value: unknown): unknown {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -213,6 +258,7 @@ export const agentSummarySchema = z.object({
   skillRoot: z.string().min(1),
   skillNames: z.array(z.string()),
   sessionCount: z.number().int().nonnegative(),
+  runtimeConfig: chatRuntimeConfigSchema.optional(),
 });
 export type AgentSummary = z.infer<typeof agentSummarySchema>;
 
@@ -308,6 +354,28 @@ export type OrchestratorPromptMode = z.infer<
   typeof orchestratorPromptModeSchema
 >;
 
+export const orchestratorScheduleFrequencySchema = z.enum([
+  "daily",
+  "weekly",
+  "monthly",
+]);
+export type OrchestratorScheduleFrequency = z.infer<
+  typeof orchestratorScheduleFrequencySchema
+>;
+
+export const orchestratorScheduleDayOfWeekSchema = z.enum([
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]);
+export type OrchestratorScheduleDayOfWeek = z.infer<
+  typeof orchestratorScheduleDayOfWeekSchema
+>;
+
 export const copilotCustomAgentSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -319,9 +387,11 @@ export type CopilotCustomAgent = z.infer<typeof copilotCustomAgentSchema>;
 export const orchestratorJobSchema = z.object({
   jobId: z.string().min(1),
   sessionId: z.string().min(1),
+  scheduleId: z.string().min(1).optional(),
   promptPreview: z.string().min(1),
   promptMode: orchestratorPromptModeSchema,
   promptPath: z.string().min(1).optional(),
+  outputPath: z.string().min(1).optional(),
   attachment: storedAttachmentSchema.optional(),
   customAgentId: z.string().min(1).optional(),
   status: orchestratorJobStatusSchema,
@@ -375,10 +445,40 @@ export const orchestratorCapabilitiesSchema = z.object({
   tmuxInstalled: z.boolean(),
   copilotInstalled: z.boolean(),
   tmuxSessionName: z.string().min(1),
+  emailDeliveryAvailable: z.boolean().optional(),
+  emailFromAddress: z.string().email().optional(),
 });
 export type OrchestratorCapabilities = z.infer<
   typeof orchestratorCapabilitiesSchema
 >;
+
+export const orchestratorScheduleSchema = z.object({
+  scheduleId: z.string().min(1),
+  sessionId: z.string().min(1),
+  title: z.string().min(1),
+  prompt: z.string().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  customAgentId: z.string().min(1).optional(),
+  emailTo: z.string().email().optional(),
+  enabled: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  nextRunAt: z.string().min(1),
+  lastRunAt: z.string().min(1).optional(),
+  lastJobId: z.string().min(1).optional(),
+  lastJobStatus: orchestratorJobStatusSchema.optional(),
+  lastCompletedAt: z.string().min(1).optional(),
+  lastEmailAttemptAt: z.string().min(1).optional(),
+  lastEmailAttemptJobId: z.string().min(1).optional(),
+  lastEmailError: z.string().min(1).optional(),
+  totalRuns: z.number().int().nonnegative().default(0),
+  failedRuns: z.number().int().nonnegative().default(0),
+});
+export type OrchestratorSchedule = z.infer<typeof orchestratorScheduleSchema>;
 
 export const workspaceSummarySchema = z.object({
   storeRoot: z.string().min(1),
@@ -393,7 +493,7 @@ export const chatRequestSchema = z.object({
   sessionId: z.string().min(1).optional(),
   title: z.string().min(1).optional(),
   prompt: z.string().default(""),
-  config: chatRuntimeConfigSchema.optional(),
+  config: partialChatRuntimeConfigSchema.optional(),
   attachment: attachmentUploadSchema.optional(),
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
@@ -442,8 +542,41 @@ export type OrchestratorTerminalInputRequest = z.infer<
   typeof orchestratorTerminalInputSchema
 >;
 
+export const orchestratorScheduleCreateSchema = z.object({
+  sessionId: z.string().min(1),
+  title: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().trim().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  customAgentId: z.string().trim().min(1).nullable().optional(),
+  emailTo: z.string().trim().email().optional(),
+  enabled: z.boolean().default(true),
+});
+export type OrchestratorScheduleCreateRequest = z.infer<
+  typeof orchestratorScheduleCreateSchema
+>;
+
+export const orchestratorScheduleUpdateSchema = z.object({
+  title: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().trim().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  customAgentId: z.string().trim().min(1).nullable().optional(),
+  emailTo: z.string().trim().email().nullable().optional(),
+  enabled: z.boolean(),
+});
+export type OrchestratorScheduleUpdateRequest = z.infer<
+  typeof orchestratorScheduleUpdateSchema
+>;
+
 export const memoryAnalysisRequestSchema = z.object({
-  config: chatRuntimeConfigSchema.optional(),
+  config: partialChatRuntimeConfigSchema.optional(),
   model: z.string().trim().min(1).optional(),
 });
 export type MemoryAnalysisRequest = z.infer<typeof memoryAnalysisRequestSchema>;

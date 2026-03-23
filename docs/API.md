@@ -137,12 +137,15 @@ Notes:
 - either `prompt` or `attachment` must be present
 - `attachment` is optional and is persisted under the session directory
 - the runtime augments the model prompt with local file context for the saved attachment
+- Copilot-backed requests wait for the agent session to settle before responding and currently allow up to 10 minutes for longer tool/reasoning loops before timing out
 
 Response body: `ChatResponse`
 
 ### `POST /api/agents/:agentId/sessions/:sessionId/messages`
 
 Appends a new user turn to an existing chat session. Uses the same `ChatRequest` and `ChatResponse` shapes as the create endpoint.
+
+Like session creation, Copilot-backed message sends wait for the underlying SDK session to settle and use the same 10-minute timeout budget for long-running agent loops.
 
 ### `POST /api/agents/:agentId/sessions/:sessionId/analyze-for-memory`
 

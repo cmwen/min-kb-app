@@ -5,11 +5,14 @@ import {
   type ChatRuntimeConfig,
   type ChatSession,
   type ChatSessionSummary,
-  DEFAULT_CHAT_MODEL,
-  DEFAULT_CHAT_PROVIDER,
+  createDefaultChatRuntimeConfig,
   type MemoryAnalysisResponse,
   type ModelDescriptor,
+  mergeChatRuntimeConfigs,
   type OrchestratorCapabilities,
+  type OrchestratorSchedule,
+  type OrchestratorScheduleCreateRequest,
+  type OrchestratorScheduleUpdateRequest,
   type OrchestratorSession,
   type OrchestratorSessionCreateRequest,
   type OrchestratorSessionUpdateRequest,
@@ -22,12 +25,14 @@ import { api } from "./api";
 import { toAttachmentUpload } from "./attachments";
 import {
   clearDraft,
+  loadAppState,
   loadDraft,
   loadQueue,
   loadSessionNotificationAcks,
   loadSnapshot,
   loadUiPreferences,
   type QueuedMessage,
+  saveAppState,
   saveDraft,
   saveQueue,
   saveSessionNotificationAcks,
@@ -68,7 +73,6 @@ import {
   resolveTheme,
 } from "./ui-preferences";
 
-const DEFAULT_MCP_TEXT = JSON.stringify({}, null, 2);
 const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
 
 type DangerAction =
@@ -107,10 +111,40 @@ type DangerAction =
 
 export default function App() {
   const cachedSnapshot = useMemo(() => loadSnapshot(), []);
+  const cachedAppState = useMemo(() => loadAppState(), []);
   const cachedUiPreferences = useMemo(() => loadUiPreferences(), []);
   const cachedSessionNotificationAcks = useMemo(
     () => loadSessionNotificationAcks(),
     []
+  );
+  const initialSelectedAgentId =
+    cachedAppState.selectedAgentId ?? cachedSnapshot.agents[0]?.id;
+  const initialSelectedAgent = cachedSnapshot.agents.find(
+    (agent) => agent.id === initialSelectedAgentId
+  );
+  const initialThreadKey =
+    cachedAppState.selectedAgentId && cachedAppState.selectedSessionId
+      ? `${cachedAppState.selectedAgentId}:${cachedAppState.selectedSessionId}`
+      : undefined;
+  const cachedSelectedThread = initialThreadKey
+    ? cachedSnapshot.threadsByKey[initialThreadKey]
+    : undefined;
+  const initialConfig = useMemo(
+    () =>
+      normalizeConfigForModel(
+        cachedAppState.preferNewSession
+          ? cachedAppState.draftConfig
+          : (cachedSelectedThread?.runtimeConfig ??
+              createDefaultConfig(initialSelectedAgent)),
+        cachedSnapshot.models
+      ),
+    [
+      cachedAppState.draftConfig,
+      cachedAppState.preferNewSession,
+      cachedSnapshot.models,
+      cachedSelectedThread?.runtimeConfig,
+      initialSelectedAgent,
+    ]
   );
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | undefined>(
@@ -134,21 +168,26 @@ export default function App() {
   );
   const [skills, setSkills] = useState<SkillDescriptor[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
-    cachedSnapshot.agents[0]?.id
+    initialSelectedAgentId
   );
   const [selectedSessionId, setSelectedSessionId] = useState<
     string | undefined
-  >();
-  const [config, setConfig] = useState<ChatRuntimeConfig>(() =>
-    createDefaultConfig()
+  >(cachedAppState.selectedSessionId);
+  const [preferNewSession, setPreferNewSession] = useState(
+    cachedAppState.preferNewSession
   );
+  const [config, setConfig] = useState<ChatRuntimeConfig>(() => initialConfig);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [queue, setQueue] = useState<QueuedMessage[]>(loadQueue());
-  const [mcpText, setMcpText] = useState(DEFAULT_MCP_TEXT);
+  const [mcpText, setMcpText] = useState(() =>
+    cachedAppState.preferNewSession
+      ? cachedAppState.draftMcpText
+      : JSON.stringify(initialConfig.mcpServers, null, 2)
+  );
   const [mcpError, setMcpError] = useState<string | undefined>();
   const [uiPreferences, setUiPreferences] = useState(cachedUiPreferences);
   const [sessionNotificationAcks, setSessionNotificationAcks] = useState(
@@ -165,6 +204,10 @@ export default function App() {
   const [orchestratorSessionsById, setOrchestratorSessionsById] = useState<
     Record<string, OrchestratorSession>
   >({});
+  const [
+    orchestratorSchedulesBySessionId,
+    setOrchestratorSchedulesBySessionId,
+  ] = useState<Record<string, OrchestratorSchedule[]>>({});
   const [analyzingMemory, setAnalyzingMemory] = useState(false);
   const [memoryAnalysisOpen, setMemoryAnalysisOpen] = useState(false);
   const [memoryAnalysis, setMemoryAnalysis] = useState<
@@ -198,6 +241,9 @@ export default function App() {
   const selectedOrchestratorSession = selectedSessionId
     ? orchestratorSessionsById[selectedSessionId]
     : undefined;
+  const selectedOrchestratorSchedules = selectedSessionId
+    ? (orchestratorSchedulesBySessionId[selectedSessionId] ?? [])
+    : [];
   const selectedSessionSummary =
     selectedAgentId && selectedSessionId
       ? (sessionsByAgent[selectedAgentId] ?? []).find(
@@ -334,6 +380,16 @@ export default function App() {
   }, [sessionNotificationAcks]);
 
   useEffect(() => {
+    saveAppState({
+      selectedAgentId,
+      selectedSessionId: preferNewSession ? undefined : selectedSessionId,
+      preferNewSession,
+      draftConfig: config,
+      draftMcpText: mcpText,
+    });
+  }, [config, mcpText, preferNewSession, selectedAgentId, selectedSessionId]);
+
+  useEffect(() => {
     setDraft(loadDraft(draftKey));
     setChatAttachment(undefined);
   }, [draftKey]);
@@ -364,8 +420,12 @@ export default function App() {
       return;
     }
 
+    if (!agents.some((agent) => agent.id === selectedAgentId)) {
+      return;
+    }
+
     void refreshAgent(selectedAgentId);
-  }, [selectedAgentId]);
+  }, [agents, selectedAgentId]);
 
   useEffect(() => {
     if (agents.length === 0) {
@@ -405,6 +465,17 @@ export default function App() {
       return;
     }
 
+    if (!(selectedAgentId in sessionsByAgent)) {
+      return;
+    }
+
+    const selectedSessionStillExists = (
+      sessionsByAgent[selectedAgentId] ?? []
+    ).some((session) => session.sessionId === selectedSessionId);
+    if (!selectedSessionStillExists) {
+      return;
+    }
+
     if (isOrchestratorAgent) {
       const cachedSession = orchestratorSessionsById[selectedSessionId];
       if (cachedSession) {
@@ -419,7 +490,7 @@ export default function App() {
     const cachedThread = threadsByKey[nextThreadKey];
     if (cachedThread) {
       const runtimeConfig = normalizeConfigForModel(
-        cachedThread.runtimeConfig ?? createDefaultConfig(),
+        cachedThread.runtimeConfig ?? createDefaultConfig(selectedAgent),
         models
       );
       setConfig(runtimeConfig);
@@ -432,10 +503,18 @@ export default function App() {
     selectedAgentId,
     selectedSessionId,
     isOrchestratorAgent,
+    sessionsByAgent,
     threadsByKey,
     orchestratorSessionsById,
     models,
   ]);
+
+  useEffect(() => {
+    if (!isOrchestratorAgent || !selectedSessionId) {
+      return;
+    }
+    void refreshOrchestratorSchedules(selectedSessionId);
+  }, [isOrchestratorAgent, selectedSessionId]);
 
   useEffect(() => {
     if (models.length === 0) {
@@ -535,8 +614,13 @@ export default function App() {
         )
       );
       setOffline(false);
-      if (!selectedAgentId && agentsResponse[0]) {
-        setSelectedAgentId(agentsResponse[0].id);
+      const selectedAgentStillExists = selectedAgentId
+        ? agentsResponse.some((agent) => agent.id === selectedAgentId)
+        : false;
+      if (!selectedAgentStillExists) {
+        setSelectedAgentId(agentsResponse[0]?.id);
+        setSelectedSessionId(undefined);
+        setPreferNewSession(false);
       }
     } catch (loadError) {
       setOffline(true);
@@ -558,8 +642,31 @@ export default function App() {
         [agentId]: nextSessions,
       }));
       setSkills(nextSkills);
-      if (!selectedSessionId && nextSessions[0]) {
-        setSelectedSessionId(nextSessions[0].sessionId);
+      if (selectedAgentId === agentId) {
+        const nextSelectedSession = selectedSessionId
+          ? nextSessions.find(
+              (session) => session.sessionId === selectedSessionId
+            )
+          : undefined;
+
+        if (selectedSessionId && !nextSelectedSession) {
+          const fallbackSession = preferNewSession
+            ? undefined
+            : nextSessions[0];
+          setSelectedSessionId(fallbackSession?.sessionId);
+          setPreferNewSession(!fallbackSession);
+          if (!fallbackSession) {
+            const defaultConfig = normalizeConfigForModel(
+              createDefaultConfig(selectedAgent),
+              models
+            );
+            setConfig(defaultConfig);
+            setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
+            setMcpError(undefined);
+          }
+        } else if (!selectedSessionId && !preferNewSession && nextSessions[0]) {
+          setSelectedSessionId(nextSessions[0].sessionId);
+        }
       }
       setOffline(false);
     } catch (loadError) {
@@ -574,7 +681,10 @@ export default function App() {
       const nextThreadKey = `${agentId}:${sessionId}`;
       setThreadsByKey((current) => ({ ...current, [nextThreadKey]: thread }));
       const runtimeConfig = normalizeConfigForModel(
-        thread.runtimeConfig ?? createDefaultConfig(),
+        thread.runtimeConfig ??
+          createDefaultConfig(
+            agents.find((candidate) => candidate.id === agentId)
+          ),
         models
       );
       setConfig(runtimeConfig);
@@ -600,11 +710,31 @@ export default function App() {
     }
   }
 
+  async function refreshOrchestratorSchedules(sessionId: string) {
+    try {
+      const schedules = await api.listOrchestratorSchedules(sessionId);
+      setOrchestratorSchedulesBySessionId((current) => ({
+        ...current,
+        [sessionId]: schedules,
+      }));
+      setOffline(false);
+    } catch (loadError) {
+      setOffline(true);
+      setError(getErrorMessage(loadError));
+    }
+  }
+
   function handleSelectAgent(agentId: string) {
     setSelectedAgentId(agentId);
     setSelectedSessionId(undefined);
-    setConfig(normalizeConfigForModel(createDefaultConfig(), models));
-    setMcpText(DEFAULT_MCP_TEXT);
+    setPreferNewSession(false);
+    const defaultConfig = normalizeConfigForModel(
+      createDefaultConfig(agents.find((agent) => agent.id === agentId)),
+      models
+    );
+    setConfig(defaultConfig);
+    setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
+    setMcpError(undefined);
     setError(undefined);
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
@@ -613,6 +743,7 @@ export default function App() {
   function handleSelectSession(agentId: string, sessionId: string) {
     setSelectedAgentId(agentId);
     setSelectedSessionId(sessionId);
+    setPreferNewSession(false);
     setError(undefined);
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
@@ -620,8 +751,14 @@ export default function App() {
 
   function handleNewSession() {
     setSelectedSessionId(undefined);
-    setConfig(normalizeConfigForModel(createDefaultConfig(), models));
-    setMcpText(DEFAULT_MCP_TEXT);
+    setPreferNewSession(true);
+    const defaultConfig = normalizeConfigForModel(
+      createDefaultConfig(selectedAgent),
+      models
+    );
+    setConfig(defaultConfig);
+    setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
+    setMcpError(undefined);
     setError(undefined);
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
@@ -710,6 +847,7 @@ export default function App() {
       );
       storeThread(response.thread);
       setSelectedSessionId(response.thread.sessionId);
+      setPreferNewSession(false);
       setDraft("");
       setChatAttachment(undefined);
       setOffline(false);
@@ -750,6 +888,7 @@ export default function App() {
       storeThread(response.thread);
       setSelectedAgentId(message.agentId);
       setSelectedSessionId(response.thread.sessionId);
+      setPreferNewSession(false);
       setQueue((current) => current.filter((item) => item.id !== message.id));
       setOffline(false);
     } catch (retryError) {
@@ -778,6 +917,7 @@ export default function App() {
         ],
       }));
       setSelectedSessionId(session.sessionId);
+      setPreferNewSession(false);
       setOffline(false);
     } catch (createError) {
       setError(getErrorMessage(createError));
@@ -851,6 +991,80 @@ export default function App() {
       setOffline(false);
     } catch (inputError) {
       setError(getErrorMessage(inputError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateOrchestratorSchedule(
+    request: OrchestratorScheduleCreateRequest
+  ) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const schedule = await api.createOrchestratorSchedule(request);
+      setOrchestratorSchedulesBySessionId((current) => ({
+        ...current,
+        [schedule.sessionId]: [
+          schedule,
+          ...(current[schedule.sessionId] ?? []).filter(
+            (item) => item.scheduleId !== schedule.scheduleId
+          ),
+        ].sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt)),
+      }));
+      setOffline(false);
+    } catch (scheduleError) {
+      setError(getErrorMessage(scheduleError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdateOrchestratorSchedule(
+    scheduleId: string,
+    request: OrchestratorScheduleUpdateRequest
+  ) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const schedule = await api.updateOrchestratorSchedule(
+        scheduleId,
+        request
+      );
+      setOrchestratorSchedulesBySessionId((current) => ({
+        ...current,
+        [schedule.sessionId]: [
+          ...(current[schedule.sessionId] ?? []).filter(
+            (item) => item.scheduleId !== schedule.scheduleId
+          ),
+          schedule,
+        ].sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt)),
+      }));
+      setOffline(false);
+    } catch (scheduleError) {
+      setError(getErrorMessage(scheduleError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteOrchestratorSchedule(
+    scheduleId: string,
+    sessionId: string
+  ) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.deleteOrchestratorSchedule(scheduleId);
+      setOrchestratorSchedulesBySessionId((current) => ({
+        ...current,
+        [sessionId]: (current[sessionId] ?? []).filter(
+          (item) => item.scheduleId !== scheduleId
+        ),
+      }));
+      setOffline(false);
+    } catch (scheduleError) {
+      setError(getErrorMessage(scheduleError));
     } finally {
       setBusy(false);
     }
@@ -1143,12 +1357,21 @@ export default function App() {
     }));
 
     if (selectedAgentId === agentId && selectedSessionId === sessionId) {
-      setSelectedSessionId(remainingSessions[0]?.sessionId);
+      const fallbackSession = remainingSessions[0];
+      setSelectedSessionId(fallbackSession?.sessionId);
+      setPreferNewSession(!fallbackSession);
       setMemoryAnalysis(undefined);
       setMemoryAnalysisOpen(false);
-      if (!remainingSessions[0]) {
-        setConfig(normalizeConfigForModel(createDefaultConfig(), models));
-        setMcpText(DEFAULT_MCP_TEXT);
+      if (!fallbackSession) {
+        const defaultConfig = normalizeConfigForModel(
+          createDefaultConfig(
+            agents.find((candidate) => candidate.id === agentId)
+          ),
+          models
+        );
+        setConfig(defaultConfig);
+        setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
+        setMcpError(undefined);
         focusComposer();
       }
     }
@@ -1158,6 +1381,11 @@ export default function App() {
     setSessionNotificationAcks((current) =>
       clearSessionNotificationAck(current, ORCHESTRATOR_AGENT_ID, sessionId)
     );
+    setOrchestratorSchedulesBySessionId((current) => {
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
     setOrchestratorSessionsById((current) => {
       const next = { ...current };
       delete next[sessionId];
@@ -1173,7 +1401,9 @@ export default function App() {
     }));
 
     if (selectedSessionId === sessionId) {
-      setSelectedSessionId(remainingSessions[0]?.sessionId);
+      const fallbackSession = remainingSessions[0];
+      setSelectedSessionId(fallbackSession?.sessionId);
+      setPreferNewSession(!fallbackSession);
     }
   }
 
@@ -1420,6 +1650,7 @@ export default function App() {
             <OrchestratorPane
               capabilities={orchestratorCapabilities}
               session={selectedOrchestratorSession}
+              schedules={selectedOrchestratorSchedules}
               models={visibleOrchestratorModels}
               defaultModelId={config.model}
               projectPathSuggestions={orchestratorProjectPathSuggestions}
@@ -1440,6 +1671,15 @@ export default function App() {
               onCancelJob={() => void handleCancelOrchestratorJob()}
               onRestartSession={promptRestartSelectedOrchestratorSession}
               onDeleteQueuedJob={promptDeleteQueuedJob}
+              onCreateSchedule={(request) =>
+                void handleCreateOrchestratorSchedule(request)
+              }
+              onUpdateSchedule={(scheduleId, request) =>
+                void handleUpdateOrchestratorSchedule(scheduleId, request)
+              }
+              onDeleteSchedule={(scheduleId, sessionId) =>
+                void handleDeleteOrchestratorSchedule(scheduleId, sessionId)
+              }
               onSessionUpdate={(session) => storeOrchestratorSession(session)}
             />
           ) : (
@@ -1561,13 +1801,11 @@ export default function App() {
   );
 }
 
-function createDefaultConfig(): ChatRuntimeConfig {
-  return {
-    provider: DEFAULT_CHAT_PROVIDER,
-    model: DEFAULT_CHAT_MODEL,
-    disabledSkills: [],
-    mcpServers: {},
-  };
+function createDefaultConfig(agent?: AgentSummary): ChatRuntimeConfig {
+  return mergeChatRuntimeConfigs(
+    createDefaultChatRuntimeConfig(),
+    agent?.runtimeConfig
+  );
 }
 
 function buildSessionSummary(thread: ChatSession): ChatSessionSummary {

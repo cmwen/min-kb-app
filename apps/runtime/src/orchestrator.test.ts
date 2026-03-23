@@ -189,7 +189,14 @@ describe("TmuxOrchestratorService.delegate", () => {
         status: "running",
       }
     );
-    expect(storeMocks.updateOrchestratorJob).not.toHaveBeenCalled();
+    expect(storeMocks.updateOrchestratorJob).toHaveBeenCalledWith(
+      expect.anything(),
+      "session-1",
+      "job-2",
+      expect.objectContaining({
+        outputPath: expect.stringContaining("/output.log"),
+      })
+    );
     expect(result).toEqual(queuedSession);
   });
 
@@ -392,6 +399,7 @@ describe("buildDelegationShellScript", () => {
     const script = buildDelegationShellScript({
       jobId: "job-1234",
       donePath: "/tmp/job-1234/DONE.json",
+      outputPath: "/tmp/job-1234/output.log",
       model: "gpt-5.4",
       prompt: "Investigate the regression",
       promptMode: "inline",

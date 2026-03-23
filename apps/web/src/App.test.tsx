@@ -412,4 +412,236 @@ describe("App memory analysis", () => {
       await screen.findByLabelText("Agent has completed work waiting")
     ).not.toBeNull();
   });
+
+  it("restores the previously selected session after a restart", async () => {
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "support-agent",
+        selectedSessionId: "session-2",
+        preferNewSession: false,
+        draftConfig: {
+          provider: "copilot",
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+    apiMocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "session-1",
+        agentId: "support-agent",
+        title: "Support chat",
+        startedAt: "2026-03-20T12:00:00Z",
+        summary: "Investigate memory analysis behavior",
+        manifestPath: "/tmp/session-1/SESSION.md",
+        turnCount: 2,
+        lastTurnAt: "2026-03-20T12:01:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+      {
+        sessionId: "session-2",
+        agentId: "support-agent",
+        title: "Escalation follow-up",
+        startedAt: "2026-03-20T12:10:00Z",
+        summary: "Handle a reopened incident",
+        manifestPath: "/tmp/session-2/SESSION.md",
+        turnCount: 4,
+        lastTurnAt: "2026-03-20T12:12:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+    ]);
+    apiMocks.getSession.mockImplementation(
+      async (_agentId: string, sessionId: string) => ({
+        sessionId,
+        agentId: "support-agent",
+        title:
+          sessionId === "session-2" ? "Escalation follow-up" : "Support chat",
+        startedAt:
+          sessionId === "session-2"
+            ? "2026-03-20T12:10:00Z"
+            : "2026-03-20T12:00:00Z",
+        summary:
+          sessionId === "session-2"
+            ? "Handle a reopened incident"
+            : "Investigate memory analysis behavior",
+        manifestPath: `/tmp/${sessionId}/SESSION.md`,
+        turnCount: sessionId === "session-2" ? 4 : 2,
+        lastTurnAt:
+          sessionId === "session-2"
+            ? "2026-03-20T12:12:00Z"
+            : "2026-03-20T12:01:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        turns: [
+          {
+            messageId: `${sessionId}-m1`,
+            sender: "user" as const,
+            createdAt: "2026-03-20T12:00:00Z",
+            bodyMarkdown: `Open ${sessionId}`,
+            relativePath: `turns/${sessionId}-m1.md`,
+          },
+        ],
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => expect(apiMocks.getSession).toHaveBeenCalledTimes(1));
+    expect(apiMocks.getSession).toHaveBeenCalledWith(
+      "support-agent",
+      "session-2"
+    );
+  });
+
+  it("restores new-chat mode without auto-opening the first saved session", async () => {
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "support-agent",
+        preferNewSession: true,
+        draftConfig: {
+          provider: "lmstudio",
+          model: "qwen2.5-7b-instruct",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+    apiMocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "session-1",
+        agentId: "support-agent",
+        title: "Support chat",
+        startedAt: "2026-03-20T12:00:00Z",
+        summary: "Investigate memory analysis behavior",
+        manifestPath: "/tmp/session-1/SESSION.md",
+        turnCount: 2,
+        lastTurnAt: "2026-03-20T12:01:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+    ]);
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Model: qwen2.5-7b-instruct")
+    ).not.toBeNull();
+    await waitFor(() =>
+      expect(apiMocks.listSessions).toHaveBeenCalledWith("support-agent")
+    );
+    expect(apiMocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the first available session when the restored one is gone", async () => {
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "support-agent",
+        selectedSessionId: "missing-session",
+        preferNewSession: false,
+        draftConfig: {
+          provider: "copilot",
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+    apiMocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "session-1",
+        agentId: "support-agent",
+        title: "Support chat",
+        startedAt: "2026-03-20T12:00:00Z",
+        summary: "Investigate memory analysis behavior",
+        manifestPath: "/tmp/session-1/SESSION.md",
+        turnCount: 2,
+        lastTurnAt: "2026-03-20T12:01:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+      {
+        sessionId: "session-2",
+        agentId: "support-agent",
+        title: "Escalation follow-up",
+        startedAt: "2026-03-20T12:10:00Z",
+        summary: "Handle a reopened incident",
+        manifestPath: "/tmp/session-2/SESSION.md",
+        turnCount: 4,
+        lastTurnAt: "2026-03-20T12:12:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+    ]);
+    apiMocks.getSession.mockImplementation(
+      async (_agentId: string, sessionId: string) => ({
+        sessionId,
+        agentId: "support-agent",
+        title:
+          sessionId === "session-2" ? "Escalation follow-up" : "Support chat",
+        startedAt:
+          sessionId === "session-2"
+            ? "2026-03-20T12:10:00Z"
+            : "2026-03-20T12:00:00Z",
+        summary:
+          sessionId === "session-2"
+            ? "Handle a reopened incident"
+            : "Investigate memory analysis behavior",
+        manifestPath: `/tmp/${sessionId}/SESSION.md`,
+        turnCount: sessionId === "session-2" ? 4 : 2,
+        lastTurnAt:
+          sessionId === "session-2"
+            ? "2026-03-20T12:12:00Z"
+            : "2026-03-20T12:01:00Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        turns: [
+          {
+            messageId: `${sessionId}-m1`,
+            sender: "user" as const,
+            createdAt: "2026-03-20T12:00:00Z",
+            bodyMarkdown: `Open ${sessionId}`,
+            relativePath: `turns/${sessionId}-m1.md`,
+          },
+        ],
+      })
+    );
+
+    render(<App />);
+
+    await waitFor(() => expect(apiMocks.getSession).toHaveBeenCalledTimes(1));
+    expect(apiMocks.getSession).toHaveBeenCalledWith(
+      "support-agent",
+      "session-1"
+    );
+  });
 });

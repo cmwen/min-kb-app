@@ -57,6 +57,13 @@ describe("createProgram", () => {
       "http://localhost:8787/api/agents/coding-agent/sessions",
       expect.objectContaining({
         method: "POST",
+        body: JSON.stringify({
+          prompt: "Fix the auth flow",
+          config: {
+            provider: "copilot",
+            model: "gpt-5",
+          },
+        }),
       })
     );
     expect(logSpy).toHaveBeenCalledWith("Patched the auth flow.");

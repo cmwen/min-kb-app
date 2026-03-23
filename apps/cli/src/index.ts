@@ -104,8 +104,6 @@ export function createProgram(): Command {
           config: {
             provider: "copilot",
             model: options.model,
-            disabledSkills: [],
-            mcpServers: {},
           },
         });
         console.log(response.assistantTurn.bodyMarkdown);
@@ -238,8 +236,6 @@ async function runInteractiveChat(
       config: {
         provider: "copilot",
         model: options.model,
-        disabledSkills: [],
-        mcpServers: {},
       },
     });
 

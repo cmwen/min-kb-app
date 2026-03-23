@@ -27,6 +27,8 @@ import type {
   MemoryEntry,
   MemoryTier,
   OrchestratorDelegateRequest,
+  OrchestratorScheduleCreateRequest,
+  OrchestratorScheduleUpdateRequest,
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
@@ -35,8 +37,12 @@ import type {
 } from "@min-kb-app/shared";
 import {
   chatRequestSchema,
+  createDefaultChatRuntimeConfig,
   memoryAnalysisRequestSchema,
+  mergeChatRuntimeConfigs,
   orchestratorDelegateRequestSchema,
+  orchestratorScheduleCreateSchema,
+  orchestratorScheduleUpdateSchema,
   orchestratorSessionCreateSchema,
   orchestratorSessionUpdateSchema,
   orchestratorTerminalInputSchema,
@@ -50,6 +56,7 @@ import {
   resolveMemoryAnalysisModel,
   TmuxOrchestratorService,
 } from "./orchestrator.js";
+import { computeNextRunAt, OrchestratorScheduleService } from "./scheduler.js";
 
 const workspace = await resolveWorkspace();
 const defaultProjectPath = process.cwd();
@@ -69,6 +76,10 @@ const orchestrator = new TmuxOrchestratorService(
     const models = await runtime.listModels();
     return models.find((model) => model.id === modelId);
   }
+);
+const scheduleService = new OrchestratorScheduleService(
+  workspace,
+  orchestrator
 );
 const app = new Hono<{ Bindings: HttpBindings }>();
 const port = Number(process.env.MIN_KB_APP_PORT ?? 8787);
@@ -323,6 +334,38 @@ app.delete(
   }
 );
 
+app.get("/api/orchestrator/schedules", async (context) => {
+  const sessionId = context.req.query("sessionId") ?? undefined;
+  return context.json(await orchestrator.listSchedules(sessionId));
+});
+
+app.post("/api/orchestrator/schedules", async (context) => {
+  const request = orchestratorScheduleCreateSchema.parse(
+    (await context.req.json()) satisfies OrchestratorScheduleCreateRequest
+  );
+  return context.json(
+    await orchestrator.createSchedule(request, computeNextRunAt(request))
+  );
+});
+
+app.patch("/api/orchestrator/schedules/:scheduleId", async (context) => {
+  const request = orchestratorScheduleUpdateSchema.parse(
+    (await context.req.json()) satisfies OrchestratorScheduleUpdateRequest
+  );
+  return context.json(
+    await orchestrator.updateSchedule(
+      context.req.param("scheduleId"),
+      request,
+      computeNextRunAt(request)
+    )
+  );
+});
+
+app.delete("/api/orchestrator/schedules/:scheduleId", async (context) => {
+  await orchestrator.deleteSchedule(context.req.param("scheduleId"));
+  return context.json({ ok: true });
+});
+
 app.get("/api/orchestrator/sessions/:sessionId/stream", async (context) => {
   return streamOrchestratorTerminal(context, context.req.param("sessionId"));
 });
@@ -331,10 +374,12 @@ app.get("/", async (context) => serveWebRequest(context, "/"));
 app.get("/*", async (context) => serveWebRequest(context, context.req.path));
 
 serve({ fetch: app.fetch, port });
+scheduleService.start();
 console.log(`min-kb-app runtime listening on http://localhost:${port}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
+    scheduleService.stop();
     await runtime.stop();
     process.exit(0);
   });
@@ -356,6 +401,11 @@ async function runChatFlow(
     forcedSessionId ??
     request.sessionId ??
     sessionIdFromTitle(title, createdAt);
+  const agent = await getAgentById(workspace, agentId);
+  const runtimeConfig = mergeChatRuntimeConfigs(
+    agent?.runtimeConfig ?? createDefaultChatRuntimeConfig(),
+    request.config
+  );
   const userThread = await saveChatTurn(workspace, {
     agentId,
     sessionId,
@@ -366,7 +416,7 @@ async function runChatFlow(
       request.attachment?.name
     ),
     createdAt,
-    runtimeConfig: request.config,
+    runtimeConfig,
     attachment: request.attachment,
   });
   const userTurn = userThread.turns.at(-1);
@@ -380,7 +430,7 @@ async function runChatFlow(
     agentId,
     sessionId,
     prompt,
-    config: request.config,
+    config: runtimeConfig,
     conversation: userThread.turns.slice(0, -1).map((turn) => ({
       sender: turn.sender,
       bodyMarkdown: turn.bodyMarkdown,
@@ -399,7 +449,7 @@ async function runChatFlow(
     bodyMarkdown: runtimeResult.assistantText,
     createdAt: new Date().toISOString(),
     summary,
-    runtimeConfig: request.config,
+    runtimeConfig,
   });
   if (runtimeResult.llmStats) {
     await recordSessionLlmUsage(

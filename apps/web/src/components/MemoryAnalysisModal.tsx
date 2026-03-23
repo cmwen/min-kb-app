@@ -1,5 +1,5 @@
 import type { MemoryAnalysisResponse } from "@min-kb-app/shared";
-import ReactMarkdown from "react-markdown";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import { Modal } from "./Modal";
 
 interface MemoryAnalysisModalProps {
@@ -201,7 +201,7 @@ export function MemoryAnalysisModal(props: MemoryAnalysisModalProps) {
             </section>
           ) : null}
           <article className="settings-card memory-analysis-body">
-            <ReactMarkdown>{props.result.markdown}</ReactMarkdown>
+            <MarkdownRenderer>{props.result.markdown}</MarkdownRenderer>
           </article>
         </>
       ) : props.loading ? (

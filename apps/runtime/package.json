@@ -14,6 +14,12 @@
     "@min-kb-app/copilot-runtime": "workspace:*",
     "@min-kb-app/min-kb-store": "workspace:*",
     "@min-kb-app/shared": "workspace:*",
-    "hono": "latest"
+    "hono": "latest",
+    "luxon": "^3.7.2",
+    "nodemailer": "^8.0.3"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "@types/nodemailer": "^7.0.11"
   }
 }

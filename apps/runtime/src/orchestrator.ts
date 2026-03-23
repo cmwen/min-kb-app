@@ -6,12 +6,16 @@ import {
   accumulatePremiumUsageTotals,
   buildOrchestratorWindowName,
   createOrchestratorJob,
+  createOrchestratorSchedule,
   createOrchestratorSession,
   deleteOrchestratorJob,
+  deleteOrchestratorSchedule,
   deleteOrchestratorSession,
   discoverCopilotCustomAgents,
+  getOrchestratorSchedule,
   getOrchestratorSession,
   getOrchestratorTerminalSize,
+  listOrchestratorSchedules,
   listOrchestratorSessions,
   type MinKbWorkspace,
   ORCHESTRATOR_AGENT_ID,
@@ -21,6 +25,7 @@ import {
   resetOrchestratorTerminalLog,
   toOrchestratorChatSummary,
   updateOrchestratorJob,
+  updateOrchestratorSchedule,
   updateOrchestratorSession,
   writeOrchestratorJobCompletion,
 } from "@min-kb-app/min-kb-store";
@@ -35,6 +40,9 @@ import {
   type OrchestratorCapabilities,
   type OrchestratorDelegateRequest,
   type OrchestratorJob,
+  type OrchestratorSchedule,
+  type OrchestratorScheduleCreateRequest,
+  type OrchestratorScheduleUpdateRequest,
   type OrchestratorSession,
   type OrchestratorSessionCreateRequest,
   type OrchestratorSessionUpdateRequest,
@@ -87,6 +95,8 @@ export class TmuxOrchestratorService {
       tmuxInstalled,
       copilotInstalled,
       tmuxSessionName: this.tmuxSessionName,
+      emailDeliveryAvailable: this.isEmailDeliveryConfigured(),
+      emailFromAddress: process.env.MIN_KB_APP_SMTP_FROM,
     });
   }
 
@@ -244,6 +254,89 @@ export class TmuxOrchestratorService {
     return this.getSession(sessionId);
   }
 
+  async listSchedules(sessionId?: string): Promise<OrchestratorSchedule[]> {
+    return listOrchestratorSchedules(this.workspace, { sessionId });
+  }
+
+  async getSchedule(scheduleId: string): Promise<OrchestratorSchedule> {
+    return getOrchestratorSchedule(this.workspace, scheduleId);
+  }
+
+  async createSchedule(
+    request: OrchestratorScheduleCreateRequest,
+    nextRunAt: string
+  ): Promise<OrchestratorSchedule> {
+    const session = await this.getSession(request.sessionId);
+    if (request.emailTo && !this.isEmailDeliveryConfigured()) {
+      throw new Error(
+        "Email delivery is not configured for this runtime. Set the MIN_KB_APP_SMTP_* environment variables first."
+      );
+    }
+    const customAgentId = this.resolveSelectedCustomAgentId(
+      session,
+      request.customAgentId
+    );
+    return createOrchestratorSchedule(this.workspace, {
+      sessionId: request.sessionId,
+      title: request.title,
+      prompt: request.prompt,
+      frequency: request.frequency,
+      timeOfDay: request.timeOfDay,
+      timezone: request.timezone,
+      dayOfWeek: request.dayOfWeek,
+      dayOfMonth: request.dayOfMonth,
+      customAgentId,
+      emailTo: request.emailTo?.trim() || undefined,
+      enabled: request.enabled,
+      nextRunAt,
+    });
+  }
+
+  async updateSchedule(
+    scheduleId: string,
+    request: OrchestratorScheduleUpdateRequest,
+    nextRunAt: string
+  ): Promise<OrchestratorSchedule> {
+    const schedule = await this.getSchedule(scheduleId);
+    const session = await this.getSession(schedule.sessionId);
+    if (request.emailTo && !this.isEmailDeliveryConfigured()) {
+      throw new Error(
+        "Email delivery is not configured for this runtime. Set the MIN_KB_APP_SMTP_* environment variables first."
+      );
+    }
+    const customAgentId = this.resolveSelectedCustomAgentId(
+      session,
+      request.customAgentId
+    );
+    return updateOrchestratorSchedule(this.workspace, scheduleId, {
+      title: request.title.trim(),
+      prompt: request.prompt.trim(),
+      frequency: request.frequency,
+      timeOfDay: request.timeOfDay,
+      timezone: request.timezone.trim(),
+      dayOfWeek: request.dayOfWeek,
+      dayOfMonth: request.dayOfMonth,
+      customAgentId,
+      emailTo: request.emailTo?.trim() || undefined,
+      enabled: request.enabled,
+      nextRunAt,
+    });
+  }
+
+  async deleteSchedule(scheduleId: string): Promise<void> {
+    await deleteOrchestratorSchedule(this.workspace, scheduleId);
+  }
+
+  async triggerSchedule(
+    schedule: OrchestratorSchedule
+  ): Promise<OrchestratorJob> {
+    const session = await this.getSession(schedule.sessionId);
+    return this.queueDelegation(session, schedule.prompt, {
+      customAgentId: schedule.customAgentId,
+      scheduleId: schedule.scheduleId,
+    });
+  }
+
   async delegate(
     sessionId: string,
     request: string | OrchestratorDelegateRequest
@@ -263,43 +356,10 @@ export class TmuxOrchestratorService {
       session,
       typeof request === "string" ? undefined : request.customAgentId
     );
-    const promptMode =
-      attachment || shouldMaterializePrompt(delegatedPrompt)
-        ? "file"
-        : "inline";
-    const premiumUsage = await this.estimatePremiumUsage(session.model);
-    const job = await createOrchestratorJob(this.workspace, sessionId, {
-      promptPreview:
-        delegatedPrompt.trim().slice(0, 160) ||
-        attachment?.name ||
-        "Delegated prompt",
-      promptMode,
+    await this.queueDelegation(session, delegatedPrompt, {
       attachment,
       customAgentId,
-      premiumUsage,
     });
-    if (customAgentId !== session.selectedCustomAgentId) {
-      await updateOrchestratorSession(this.workspace, sessionId, {
-        selectedCustomAgentId: customAgentId,
-      });
-    }
-    const preparedJob = await this.prepareJobArtifacts(
-      {
-        ...session,
-        selectedCustomAgentId: customAgentId,
-      },
-      job,
-      delegatedPrompt
-    );
-    if (session.status === "running" && session.activeJobId) {
-      await updateOrchestratorSession(this.workspace, sessionId, {
-        lastJobId: preparedJob.jobId,
-        status: "running",
-      });
-      return this.getSession(sessionId);
-    }
-
-    await this.startPreparedJob(session, preparedJob);
     return this.getSession(sessionId);
   }
 
@@ -667,6 +727,57 @@ export class TmuxOrchestratorService {
     });
   }
 
+  private async queueDelegation(
+    session: OrchestratorSession,
+    delegatedPrompt: string,
+    options: {
+      attachment?: OrchestratorDelegateRequest["attachment"];
+      customAgentId?: string;
+      scheduleId?: string;
+    } = {}
+  ): Promise<OrchestratorJob> {
+    const attachment = options.attachment;
+    const promptMode =
+      attachment || shouldMaterializePrompt(delegatedPrompt)
+        ? "file"
+        : "inline";
+    const premiumUsage = await this.estimatePremiumUsage(session.model);
+    const job = await createOrchestratorJob(this.workspace, session.sessionId, {
+      promptPreview:
+        delegatedPrompt.trim().slice(0, 160) ||
+        attachment?.name ||
+        "Delegated prompt",
+      promptMode,
+      attachment,
+      customAgentId: options.customAgentId,
+      scheduleId: options.scheduleId,
+      premiumUsage,
+    });
+    if (options.customAgentId !== session.selectedCustomAgentId) {
+      await updateOrchestratorSession(this.workspace, session.sessionId, {
+        selectedCustomAgentId: options.customAgentId,
+      });
+    }
+    const preparedJob = await this.prepareJobArtifacts(
+      {
+        ...session,
+        selectedCustomAgentId: options.customAgentId,
+      },
+      job,
+      delegatedPrompt
+    );
+    if (session.status === "running" && session.activeJobId) {
+      await updateOrchestratorSession(this.workspace, session.sessionId, {
+        lastJobId: preparedJob.jobId,
+        status: "running",
+      });
+      return preparedJob;
+    }
+
+    await this.startPreparedJob(session, preparedJob);
+    return preparedJob;
+  }
+
   private async prepareJobArtifacts(
     session: OrchestratorSession,
     job: OrchestratorJob,
@@ -696,13 +807,18 @@ export class TmuxOrchestratorService {
     }
 
     const donePath = path.join(job.jobDirectory, "DONE.json");
+    const outputPath = path.join(job.jobDirectory, "output.log");
     const scriptPath = path.join(
       job.jobDirectory,
       ORCHESTRATOR_SCRIPT_FILENAME
     );
+    await updateOrchestratorJob(this.workspace, session.sessionId, job.jobId, {
+      outputPath,
+    });
     const script = buildDelegationShellScript({
       jobId: job.jobId,
       donePath,
+      outputPath,
       model: session.model,
       prompt: effectivePrompt,
       promptPath,
@@ -717,6 +833,7 @@ export class TmuxOrchestratorService {
     return {
       ...job,
       promptPath,
+      outputPath,
     };
   }
 
@@ -799,6 +916,14 @@ export class TmuxOrchestratorService {
     }
     return selected;
   }
+
+  private isEmailDeliveryConfigured(): boolean {
+    return [
+      process.env.MIN_KB_APP_SMTP_HOST,
+      process.env.MIN_KB_APP_SMTP_PORT,
+      process.env.MIN_KB_APP_SMTP_FROM,
+    ].every((value) => typeof value === "string" && value.trim().length > 0);
+  }
 }
 
 export function deriveSessionStatus(
@@ -870,6 +995,7 @@ export function shouldMaterializePrompt(prompt: string): boolean {
 export function buildDelegationShellScript(input: {
   jobId: string;
   donePath: string;
+  outputPath: string;
   model: string;
   prompt: string;
   promptMode: "inline" | "file";
@@ -889,16 +1015,23 @@ export function buildDelegationShellScript(input: {
   return [
     "#!/usr/bin/env bash",
     "set -u",
+    "set -o pipefail",
     `job_id=${shellQuote(input.jobId)}`,
     `done_path=${shellQuote(input.donePath)}`,
+    `output_path=${shellQuote(input.outputPath)}`,
     `tmux_target=${shellQuote(input.tmuxTarget)}`,
     `project_purpose=${shellQuote(input.projectPurpose)}`,
     'started_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")',
     'printf \'\\n[min-kb-app] Delegating job %s at %s\\n\' "$job_id" "$started_at"',
-    command,
-    "status=$?",
+    'mkdir -p "$(dirname "$output_path")"',
+    `printf '[min-kb-app] Job %s started at %s\\n' "$job_id" "$started_at" >> "$output_path"`,
+    "{",
+    `  ${command}`,
+    '} 2>&1 | tee -a "$output_path"',
+    "status=$" + "{PIPESTATUS[0]}",
     'completed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")',
     'printf \'\\n[min-kb-app] Job %s finished with exit code %s at %s\\n\' "$job_id" "$status" "$completed_at"',
+    `printf '[min-kb-app] Job %s finished with exit code %s at %s\\n' "$job_id" "$status" "$completed_at" >> "$output_path"`,
     'if [ "$status" -eq 0 ]; then',
     '  completion_message="min-kb-app: job $job_id completed successfully"',
     "else",

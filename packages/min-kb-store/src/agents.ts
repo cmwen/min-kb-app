@@ -2,9 +2,11 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type {
   AgentSummary,
+  ChatRuntimeConfig,
   SkillDescriptor,
   SkillScope,
 } from "@min-kb-app/shared";
+import { chatRuntimeConfigSchema } from "@min-kb-app/shared";
 import matter from "gray-matter";
 import {
   firstParagraph,
@@ -50,6 +52,7 @@ export async function getAgentById(
   const agentPath = path.join(agentRoot, "AGENT.md");
   const defaultSoulPath = path.join(workspace.agentsRoot, "default", "SOUL.md");
   const soulPath = path.join(agentRoot, "SOUL.md");
+  const runtimeConfigPath = path.join(agentRoot, "RUNTIME.json");
   const historyRoot = path.join(agentRoot, "history");
   const workingMemoryRoot = path.join(agentRoot, "memory", "working");
   const skillRoot = path.join(agentRoot, "skills");
@@ -58,14 +61,21 @@ export async function getAgentById(
     return undefined;
   }
 
-  const [agentDocument, defaultSoul, soul, skills, sessionCount] =
-    await Promise.all([
-      readMarkdownDocument(agentPath),
-      readMarkdownDocument(defaultSoulPath),
-      readMarkdownDocumentIfExists(soulPath),
-      listSkillsForAgent(workspace, normalizedAgentId),
-      countAgentSessions(historyRoot),
-    ]);
+  const [
+    agentDocument,
+    defaultSoul,
+    soul,
+    runtimeConfig,
+    skills,
+    sessionCount,
+  ] = await Promise.all([
+    readMarkdownDocument(agentPath),
+    readMarkdownDocument(defaultSoulPath),
+    readMarkdownDocumentIfExists(soulPath),
+    readRuntimeConfigIfExists(runtimeConfigPath),
+    listSkillsForAgent(workspace, normalizedAgentId),
+    countAgentSessions(historyRoot),
+  ]);
 
   const title =
     typeof agentDocument.data.title === "string"
@@ -93,6 +103,7 @@ export async function getAgentById(
     skillRoot,
     skillNames: skills.map((skill) => skill.name),
     sessionCount,
+    runtimeConfig,
   };
 }
 
@@ -208,6 +219,17 @@ async function readMarkdownDocumentIfExists(
     content: parsed.content.trim(),
     data: parsed.data as Record<string, unknown>,
   };
+}
+
+async function readRuntimeConfigIfExists(
+  filePath: string
+): Promise<ChatRuntimeConfig | undefined> {
+  const raw = await readOptionalFile(filePath);
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  return chatRuntimeConfigSchema.parse(JSON.parse(raw));
 }
 
 async function countAgentSessions(historyRoot: string): Promise<number> {

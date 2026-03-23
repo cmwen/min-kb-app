@@ -54,9 +54,47 @@ describe("agent loading", () => {
     expect(agent?.combinedPrompt).toContain("Agent contract");
     expect(agent?.combinedPrompt).toContain("shared-skill");
   });
+
+  it("loads agent runtime config and normalizes Copilot-style MCP server entries", async () => {
+    const root = await createStoreFixture({
+      runtimeConfig: {
+        reasoningEffort: "high",
+        mcpServers: {
+          playwright: {
+            command: "npx",
+            args: ["@playwright/mcp@latest", "--headless"],
+          },
+        },
+      },
+    });
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+
+    const agent = await getAgentById(workspace, "coding-agent");
+
+    expect(agent?.runtimeConfig).toEqual({
+      provider: "copilot",
+      model: "gpt-5",
+      reasoningEffort: "high",
+      disabledSkills: [],
+      mcpServers: {
+        playwright: {
+          type: "stdio",
+          command: "npx",
+          args: ["@playwright/mcp@latest", "--headless"],
+          env: {},
+          tools: ["*"],
+        },
+      },
+    });
+  });
 });
 
-async function createStoreFixture(): Promise<string> {
+async function createStoreFixture(options?: {
+  runtimeConfig?: Record<string, unknown>;
+}): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "min-kb-app-agent-"));
   roots.push(root);
 
@@ -82,6 +120,13 @@ async function createStoreFixture(): Promise<string> {
     `---\nid: "persona-coding-agent"\ntype: "persona"\ntitle: "Coding persona"\n---\nPrefer shared scripts.\n`,
     "utf8"
   );
+  if (options?.runtimeConfig) {
+    await writeFile(
+      path.join(root, "agents/coding-agent/RUNTIME.json"),
+      `${JSON.stringify(options.runtimeConfig, null, 2)}\n`,
+      "utf8"
+    );
+  }
 
   return root;
 }

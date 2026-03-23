@@ -8,6 +8,7 @@ It combines a local runtime host, a basic CLI, and a PWA web UI around the Markd
 - resume chats using GitHub Copilot SDK sessions
 - switch chat sessions between the GitHub Copilot runtime and a local LM Studio provider
 - delegate async tmux-backed jobs through the built-in `copilot-orchestrator` agent
+- schedule recurring orchestrator jobs and optionally email their captured output
 - load agent-local, store-global, and `~/.copilot/skills` skill directories
 - attach one file up to 5 MB to a chat message or delegated orchestrator job
 - configure model, disabled skills, and MCP servers per chat
@@ -108,13 +109,15 @@ The agent rail also includes a built-in `copilot-orchestrator` agent. Selecting 
 - stream tmux output live over SSE
 - show red-dot unread completion badges in the agent/session UI when delegated work finishes in the background
 - cancel a stuck delegated job, restart the tmux pane for fresh work, delete queued jobs, and delete whole orchestrator sessions
+- create daily, weekly, or monthly recurring orchestrator schedules tied to a session prompt
+- optionally email a schedule run to a recipient when the delegated job finishes
 - send raw terminal input back into the tmux pane with or without submitting `Enter`
 
 Normal chat agents keep the standard chat workflow, but now also expose provider-aware runtime controls plus a single-file attachment picker in the composer. Image attachments render inline in the timeline, while non-images download from the runtime attachment endpoint.
 
 Normal chat agents also expose an `Analyze memory` header action. That action runs a `gpt-5-mini` pass over the current thread and asks the selected agent to use any available memory-related skills to update memory without adding extra turns to the conversation.
 
-The command palette (`Cmd/Ctrl+K`) lets you switch agents, chats, and primary actions quickly. Existing sessions still load their saved runtime config from `RUNTIME.json`; brand-new sessions start from the default config until you send the first message.
+The command palette (`Cmd/Ctrl+K`) lets you switch agents, chats, and primary actions quickly. Existing sessions still load their saved runtime config from `RUNTIME.json`; brand-new sessions start from the selected agent's `RUNTIME.json` defaults when present, then fall back to the built-in default config until you send the first message.
 
 For a detailed walkthrough, see [`docs/WEB_UI.md`](docs/WEB_UI.md).
 
@@ -136,6 +139,7 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_STORE_ROOT` tells the runtime where to find `min-kb-store`
 - `MIN_KB_APP_PORT` controls the runtime HTTP port
 - `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` overrides the shared tmux session name used by the built-in orchestrator agent
+- `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, and `MIN_KB_APP_SMTP_FROM` enable schedule email delivery from the runtime
 - `MIN_KB_APP_RUNTIME_URL` controls the CLI target
 - `MIN_KB_APP_LM_STUDIO_BASE_URL` or `LM_STUDIO_BASE_URL` point the optional LM Studio provider at a local OpenAI-compatible endpoint
 - `MIN_KB_APP_LM_STUDIO_MODEL` or `LM_STUDIO_MODEL` provide a fallback LM Studio model id when live model discovery is unavailable

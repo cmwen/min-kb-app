@@ -2,6 +2,9 @@ import type {
   ModelDescriptor,
   OrchestratorCapabilities,
   OrchestratorJob,
+  OrchestratorSchedule,
+  OrchestratorScheduleCreateRequest,
+  OrchestratorScheduleUpdateRequest,
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
@@ -10,11 +13,16 @@ import Ansi from "ansi-to-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_ROOT } from "../api";
+import {
+  type OrchestratorScheduleDraft,
+  OrchestratorScheduleModal,
+} from "./OrchestratorScheduleModal";
 import { SingleAttachmentPicker } from "./SingleAttachmentPicker";
 
 interface OrchestratorPaneProps {
   capabilities?: OrchestratorCapabilities;
   session?: OrchestratorSession;
+  schedules: OrchestratorSchedule[];
   models: ModelDescriptor[];
   defaultModelId: string;
   projectPathSuggestions: string[];
@@ -27,6 +35,12 @@ interface OrchestratorPaneProps {
   onCancelJob: () => void;
   onRestartSession: () => void;
   onDeleteQueuedJob: (jobId: string) => void;
+  onCreateSchedule: (request: OrchestratorScheduleCreateRequest) => void;
+  onUpdateSchedule: (
+    scheduleId: string,
+    request: OrchestratorScheduleUpdateRequest
+  ) => void;
+  onDeleteSchedule: (scheduleId: string, sessionId: string) => void;
   onSessionUpdate: (session: OrchestratorSession) => void;
 }
 
@@ -52,15 +66,21 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<
+    OrchestratorSchedule | undefined
+  >();
   const [terminalOutput, setTerminalOutput] = useState(
     props.session?.terminalTail ?? ""
   );
   const [streamState, setStreamState] = useState<"idle" | "live" | "closed">(
     "idle"
   );
+  const [streamReconnectToken, setStreamReconnectToken] = useState(0);
   const terminalRef = useRef<HTMLDivElement>(null);
   const sessionUpdateRef = useRef(props.onSessionUpdate);
   const streamOffsetRef = useRef(props.session?.logSize ?? 0);
+  const reconnectTimeoutRef = useRef<number | undefined>(undefined);
   const projectPathDatalistId = "orchestrator-project-paths";
   const modelOptions = useMemo(() => {
     if (props.models.length > 0) {
@@ -139,6 +159,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const failedJobCount = props.session?.jobs.filter(
     (job) => job.status === "failed"
   ).length;
+  const enabledScheduleCount = props.schedules.filter(
+    (schedule) => schedule.enabled
+  ).length;
   const delegateButtonLabel = activeJob
     ? "Queue next prompt"
     : "Delegate prompt";
@@ -147,6 +170,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     ? `${props.session.sessionId}-task-queue`
     : "orchestrator-task-queue";
   const queueToggleLabel = queueOpen ? "Hide task queue" : "Open task queue";
+  const scheduleSectionId = props.session
+    ? `${props.session.sessionId}-schedules`
+    : "orchestrator-schedules";
 
   useEffect(() => {
     const defaultProjectPath = props.capabilities?.defaultProjectPath;
@@ -179,6 +205,8 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     setTerminalInput("");
     setTerminalOutput(props.session?.terminalTail ?? "");
     setQueueOpen(false);
+    setScheduleModalOpen(false);
+    setEditingSchedule(undefined);
   }, [props.session?.sessionId]);
 
   useEffect(() => {
@@ -229,6 +257,15 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   }, [props.session?.sessionId]);
 
   useEffect(() => {
+    return () => {
+      if (reconnectTimeoutRef.current !== undefined) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!props.session) {
       setStreamState("idle");
       return;
@@ -242,24 +279,48 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
         chunk: string;
         nextOffset: number;
       };
+      streamOffsetRef.current = payload.nextOffset;
       if (payload.chunk.length > 0) {
         setTerminalOutput((current) => `${current}${payload.chunk}`);
       }
+    };
+    const handleHeartbeat = (event: MessageEvent<string>) => {
+      const payload = JSON.parse(event.data) as {
+        offset: number;
+      };
+      streamOffsetRef.current = payload.offset;
     };
     const handleSession = (event: MessageEvent<string>) => {
       const payload = JSON.parse(event.data) as OrchestratorSession;
       sessionUpdateRef.current(payload);
     };
     const handleError = () => {
+      eventSource.close();
       setStreamState("closed");
+      if (reconnectTimeoutRef.current !== undefined) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+      }
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = undefined;
+        setStreamReconnectToken((current) => current + 1);
+      }, 1_000);
     };
 
     setStreamState("live");
     eventSource.addEventListener("output", handleOutput as EventListener);
+    eventSource.addEventListener("heartbeat", handleHeartbeat as EventListener);
     eventSource.addEventListener("session", handleSession as EventListener);
     eventSource.onerror = handleError;
     return () => {
+      if (reconnectTimeoutRef.current !== undefined) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
       eventSource.removeEventListener("output", handleOutput as EventListener);
+      eventSource.removeEventListener(
+        "heartbeat",
+        handleHeartbeat as EventListener
+      );
       eventSource.removeEventListener(
         "session",
         handleSession as EventListener
@@ -267,14 +328,16 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       eventSource.close();
       setStreamState("closed");
     };
-  }, [props.session?.sessionId]);
+  }, [props.session?.sessionId, streamReconnectToken]);
 
   const capabilityMessage = useMemo(() => {
     if (!props.capabilities) {
       return "Loading orchestrator capabilities…";
     }
     if (props.capabilities.available) {
-      return `tmux session ${props.capabilities.tmuxSessionName} is ready for delegation.`;
+      return props.capabilities.emailDeliveryAvailable
+        ? `tmux session ${props.capabilities.tmuxSessionName} is ready for delegation and runtime email delivery is configured.`
+        : `tmux session ${props.capabilities.tmuxSessionName} is ready for delegation.`;
     }
     if (!props.capabilities.tmuxInstalled) {
       return "tmux is not available on this machine.";
@@ -298,6 +361,52 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const settingsPanelId = props.session
     ? `${props.session.sessionId}-session-settings`
     : "orchestrator-session-settings";
+
+  function handleOpenCreateSchedule() {
+    setEditingSchedule(undefined);
+    setScheduleModalOpen(true);
+  }
+
+  function handleEditSchedule(schedule: OrchestratorSchedule) {
+    setEditingSchedule(schedule);
+    setScheduleModalOpen(true);
+  }
+
+  function handleSaveSchedule(draft: OrchestratorScheduleDraft) {
+    if (!props.session) {
+      return;
+    }
+    if (editingSchedule) {
+      props.onUpdateSchedule(editingSchedule.scheduleId, {
+        title: draft.title,
+        prompt: draft.prompt,
+        frequency: draft.frequency,
+        timeOfDay: draft.timeOfDay,
+        timezone: draft.timezone,
+        dayOfWeek: draft.dayOfWeek,
+        dayOfMonth: draft.dayOfMonth,
+        customAgentId: draft.customAgentId ?? null,
+        emailTo: draft.emailTo ?? null,
+        enabled: draft.enabled,
+      });
+    } else {
+      props.onCreateSchedule({
+        sessionId: props.session.sessionId,
+        title: draft.title,
+        prompt: draft.prompt,
+        frequency: draft.frequency,
+        timeOfDay: draft.timeOfDay,
+        timezone: draft.timezone,
+        dayOfWeek: draft.dayOfWeek,
+        dayOfMonth: draft.dayOfMonth,
+        customAgentId: draft.customAgentId ?? null,
+        emailTo: draft.emailTo,
+        enabled: draft.enabled,
+      });
+    }
+    setScheduleModalOpen(false);
+    setEditingSchedule(undefined);
+  }
 
   if (!props.session) {
     return (
@@ -694,6 +803,134 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
         ) : null}
       </div>
 
+      <div className="settings-card orchestrator-schedule-stack">
+        <div className="orchestrator-job-stack-header">
+          <div className="orchestrator-job-stack-toggle-copy">
+            <span className="eyebrow">Recurring schedules</span>
+            <strong>
+              Automate prompts for this session and optionally email the
+              captured output.
+            </strong>
+          </div>
+          <div className="orchestrator-job-stack-stats">
+            <span className="orchestrator-job-counter">
+              {enabledScheduleCount} active
+            </span>
+            <span className="orchestrator-job-counter">
+              {props.schedules.length - enabledScheduleCount} paused
+            </span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleOpenCreateSchedule}
+              disabled={props.pending}
+            >
+              Create schedule
+            </button>
+          </div>
+        </div>
+        <div id={scheduleSectionId} className="orchestrator-job-stack-panel">
+          {props.schedules.length > 0 ? (
+            <div className="orchestrator-job-list">
+              {props.schedules.map((schedule) => (
+                <article
+                  key={schedule.scheduleId}
+                  className={`orchestrator-job-item orchestrator-schedule-item ${schedule.enabled ? "orchestrator-schedule-item-enabled" : "orchestrator-schedule-item-paused"}`}
+                >
+                  <div className="orchestrator-job-row">
+                    <div className="orchestrator-job-title">
+                      <span className="scope-chip">
+                        {schedule.enabled ? "Active" : "Paused"}
+                      </span>
+                      <strong>{schedule.title}</strong>
+                    </div>
+                    <span className="panel-caption">
+                      Next run {formatTimestamp(schedule.nextRunAt)}
+                    </span>
+                  </div>
+                  <div className="panel-caption orchestrator-schedule-summary">
+                    {describeSchedule(schedule)}
+                  </div>
+                  <div className="panel-caption orchestrator-schedule-prompt">
+                    {schedule.prompt}
+                  </div>
+                  <div className="orchestrator-job-row">
+                    <span className="panel-caption">
+                      {schedule.emailTo
+                        ? `Emails ${schedule.emailTo}`
+                        : "In-app only"}
+                      {" • "}
+                      {schedule.totalRuns} total run
+                      {schedule.totalRuns === 1 ? "" : "s"}
+                      {schedule.failedRuns > 0
+                        ? ` • ${schedule.failedRuns} failed`
+                        : ""}
+                      {schedule.lastJobStatus
+                        ? ` • Last status ${humanizeJobStatus(schedule.lastJobStatus)}`
+                        : ""}
+                    </span>
+                    <span className="orchestrator-job-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() =>
+                          props.onUpdateSchedule(schedule.scheduleId, {
+                            title: schedule.title,
+                            prompt: schedule.prompt,
+                            frequency: schedule.frequency,
+                            timeOfDay: schedule.timeOfDay,
+                            timezone: schedule.timezone,
+                            dayOfWeek: schedule.dayOfWeek,
+                            dayOfMonth: schedule.dayOfMonth,
+                            customAgentId: schedule.customAgentId ?? null,
+                            emailTo: schedule.emailTo ?? null,
+                            enabled: !schedule.enabled,
+                          })
+                        }
+                        disabled={props.pending}
+                      >
+                        {schedule.enabled ? "Pause" : "Resume"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={() => handleEditSchedule(schedule)}
+                        disabled={props.pending}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button danger-button"
+                        onClick={() =>
+                          props.onDeleteSchedule(
+                            schedule.scheduleId,
+                            schedule.sessionId
+                          )
+                        }
+                        disabled={props.pending}
+                      >
+                        Delete
+                      </button>
+                    </span>
+                  </div>
+                  {schedule.lastEmailError ? (
+                    <div className="panel-caption orchestrator-schedule-error">
+                      Last email attempt failed: {schedule.lastEmailError}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="panel-caption">
+              Create a recurring prompt for routines like a morning news
+              summary, a scheduled code review, or a daily status email.
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="terminal-shell">
         <div className="terminal-toolbar">
           <div>
@@ -851,6 +1088,20 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           </div>
         </div>
       </div>
+
+      <OrchestratorScheduleModal
+        open={scheduleModalOpen}
+        pending={props.pending}
+        schedule={editingSchedule}
+        availableCustomAgents={props.session.availableCustomAgents}
+        emailDeliveryAvailable={!!props.capabilities?.emailDeliveryAvailable}
+        emailFromAddress={props.capabilities?.emailFromAddress}
+        onClose={() => {
+          setScheduleModalOpen(false);
+          setEditingSchedule(undefined);
+        }}
+        onSave={handleSaveSchedule}
+      />
     </section>
   );
 }
@@ -921,6 +1172,16 @@ function describeJobProgress(job: OrchestratorJob): string {
   }
 }
 
+function describeSchedule(schedule: OrchestratorSchedule): string {
+  const base =
+    schedule.frequency === "daily"
+      ? `Every day at ${schedule.timeOfDay}`
+      : schedule.frequency === "weekly"
+        ? `Every ${humanizeDayOfWeek(schedule.dayOfWeek)} at ${schedule.timeOfDay}`
+        : `Every month on day ${schedule.dayOfMonth ?? 1} at ${schedule.timeOfDay}`;
+  return `${base} (${schedule.timezone})`;
+}
+
 function formatJobTimestamp(job: OrchestratorJob): string {
   switch (job.status) {
     case "queued":
@@ -945,6 +1206,13 @@ function formatTimestamp(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function humanizeDayOfWeek(day: OrchestratorSchedule["dayOfWeek"]): string {
+  if (!day) {
+    return "Monday";
+  }
+  return `${day.slice(0, 1).toUpperCase()}${day.slice(1)}`;
 }
 
 function SettingsIcon() {

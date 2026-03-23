@@ -101,7 +101,7 @@ The orchestrator terminal viewer also keeps its transient stream state in memory
 For normal chat agents, the runtime config a user sees depends on what they are doing:
 
 1. Opening an existing session loads the saved `RUNTIME.json`
-2. Starting a new session uses the built-in default config
+2. Starting a new session uses the selected agent's `agents/<agent>/RUNTIME.json` defaults when present, then falls back to the built-in default config
 3. Editing runtime controls in the conversation header updates in-memory request state immediately
 4. Sending a message persists that session config back into `RUNTIME.json`
 

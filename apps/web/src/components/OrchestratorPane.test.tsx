@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrchestratorPane } from "./OrchestratorPane";
@@ -50,6 +50,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -148,6 +152,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -239,6 +247,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -319,6 +331,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -341,6 +357,245 @@ describe("OrchestratorPane", () => {
       prompt: "Inspect the attached image.",
       attachment: expect.any(File),
     });
+  });
+
+  it("creates a recurring schedule from the orchestrator session view", async () => {
+    const user = userEvent.setup();
+    const onCreateSchedule = vi.fn();
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: ["/tmp/another-project"],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+          emailDeliveryAvailable: true,
+          emailFromAddress: "bot@example.com",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "idle",
+          activeJobId: undefined,
+          lastJobId: undefined,
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        schedules={[]}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        onCreateSchedule={onCreateSchedule}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create schedule" }));
+    await user.type(
+      screen.getByLabelText("Schedule title"),
+      "Daily XYZ digest"
+    );
+    await user.type(
+      screen.getByPlaceholderText(
+        "Summarize the latest news from XYZ, highlight the top five updates, and end with a short executive summary."
+      ),
+      "Summarize the latest XYZ news and email me the result."
+    );
+    await user.type(
+      screen.getByPlaceholderText("name@example.com"),
+      "person@example.com"
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: "Create schedule" }).at(-1) ??
+        document.body
+    );
+
+    expect(onCreateSchedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "2026-03-20-repo-support",
+        title: "Daily XYZ digest",
+        prompt: "Summarize the latest XYZ news and email me the result.",
+        frequency: "daily",
+        timeOfDay: "08:00",
+        dayOfWeek: undefined,
+        dayOfMonth: undefined,
+        customAgentId: null,
+        emailTo: "person@example.com",
+        enabled: true,
+      })
+    );
+  });
+
+  it("reconnects the terminal stream from the latest offset after errors", async () => {
+    const instances: MockEventSource[] = [];
+    class MockEventSource {
+      readonly listeners = new Map<
+        string,
+        Array<(event: MessageEvent<string>) => void>
+      >();
+      readonly close = vi.fn();
+      onerror: (() => void) | null = null;
+
+      constructor(public readonly url: string) {
+        instances.push(this);
+      }
+
+      addEventListener = vi.fn(
+        (type: string, listener: (event: MessageEvent<string>) => void) => {
+          const listeners = this.listeners.get(type) ?? [];
+          listeners.push(listener);
+          this.listeners.set(type, listeners);
+        }
+      );
+
+      removeEventListener = vi.fn(
+        (type: string, listener: (event: MessageEvent<string>) => void) => {
+          const listeners = this.listeners.get(type) ?? [];
+          this.listeners.set(
+            type,
+            listeners.filter((candidate) => candidate !== listener)
+          );
+        }
+      );
+
+      emit(type: string, payload: unknown) {
+        for (const listener of this.listeners.get(type) ?? []) {
+          listener({
+            data: JSON.stringify(payload),
+          } as MessageEvent<string>);
+        }
+      }
+    }
+    vi.stubGlobal(
+      "EventSource",
+      MockEventSource as unknown as typeof EventSource
+    );
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: ["/tmp/another-project"],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "running",
+          activeJobId: "job-1",
+          lastJobId: "job-1",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [
+            {
+              jobId: "job-1",
+              sessionId: "2026-03-20-repo-support",
+              promptPreview: "Stream output",
+              promptMode: "inline",
+              status: "running",
+              submittedAt: "2026-03-20T12:04:00Z",
+              startedAt: "2026-03-20T12:04:05Z",
+              jobDirectory: "/tmp/session/jobs/job-1",
+            },
+          ],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        schedules={[]}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    expect(instances[0]?.url).toContain("offset=0");
+
+    instances[0]?.emit("output", {
+      chunk: "hello",
+      nextOffset: 5,
+    });
+    instances[0]?.onerror?.();
+
+    await waitFor(() => expect(instances).toHaveLength(2), { timeout: 2_000 });
+    expect(instances[1]?.url).toContain("offset=5");
   });
 
   it("keeps the task queue collapsed until users open it", async () => {
@@ -435,6 +690,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -537,6 +796,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={onDeleteQueuedJob}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -619,6 +882,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -657,6 +924,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={() => undefined}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );
@@ -732,6 +1003,10 @@ describe("OrchestratorPane", () => {
         onCancelJob={() => undefined}
         onRestartSession={onRestartSession}
         onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
         onSessionUpdate={() => undefined}
       />
     );

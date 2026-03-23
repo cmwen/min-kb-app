@@ -5,6 +5,7 @@ import {
   type SessionEvent,
 } from "@github/copilot-sdk";
 import {
+  getAgentById,
   listAgents,
   listSkillsForAgent,
   type MinKbWorkspace,
@@ -20,9 +21,9 @@ import type {
   TurnSender,
 } from "@min-kb-app/shared";
 import {
-  chatRuntimeConfigSchema,
   llmRequestStatsSchema,
   type MemoryTier,
+  mergeChatRuntimeConfigs,
 } from "@min-kb-app/shared";
 import {
   COPILOT_RUNTIME_PROVIDER,
@@ -87,16 +88,22 @@ interface RuntimeProvider {
   stop(): Promise<void>;
 }
 
+interface SettledCopilotResponse {
+  assistantMessage?: AssistantMessageEvent;
+  assistantText?: string;
+}
+
 const DIAGNOSTIC_IDLE_WAIT_MS = 25;
 const DIAGNOSTIC_MAX_WAIT_MS = 250;
+const SESSION_IDLE_SETTLE_MS = 100;
 const SESSION_COMPLETION_POLL_MS = 50;
-const SESSION_ASSISTANT_SETTLE_MS = 1500;
-const SESSION_COMPLETION_TIMEOUT_MS = 120000;
+const SESSION_COMPLETION_TIMEOUT_MS = 600000;
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
 
 export class ChatRuntimeService {
   private readonly providers: RuntimeProvider[];
   private readonly providersById: Map<string, RuntimeProvider>;
+  private readonly workspace: MinKbWorkspace;
 
   constructor(
     workspace: MinKbWorkspace,
@@ -105,6 +112,7 @@ export class ChatRuntimeService {
       lmStudioModel?: string;
     }
   ) {
+    this.workspace = workspace;
     this.providers = [
       new CopilotRuntimeProvider(workspace),
       new LmStudioRuntimeProvider(options),
@@ -138,7 +146,11 @@ export class ChatRuntimeService {
   async sendMessage(
     input: SendRuntimeMessageInput
   ): Promise<SendRuntimeMessageResult> {
-    const parsedConfig = chatRuntimeConfigSchema.parse(input.config ?? {});
+    const agent = await getAgentById(this.workspace, input.agentId);
+    const parsedConfig = mergeChatRuntimeConfigs(
+      agent?.runtimeConfig,
+      input.config
+    );
     const provider = this.getProvider(parsedConfig.provider);
     const normalizedConfig = normalizeConfigForModel(
       parsedConfig,
@@ -220,15 +232,20 @@ class CopilotRuntimeProvider implements RuntimeProvider {
         input.prompt
       );
       await sessionDiagnostics.waitForIdle();
-      const assistantText = this.extractAssistantText(response);
-      if (!assistantText) {
-        throw new Error(
-          "Copilot completed without returning an assistant message."
+      const assistantText =
+        response.assistantText ??
+        this.extractAssistantText(response.assistantMessage);
+      if (assistantText === undefined) {
+        console.warn(
+          "Copilot completed without returning assistant text; saving an empty assistant turn."
         );
       }
       return {
-        assistantText,
-        llmStats: this.aggregateUsageEvents(usageEvents, response),
+        assistantText: assistantText ?? "",
+        llmStats: this.aggregateUsageEvents(
+          usageEvents,
+          response.assistantMessage
+        ),
         sessionDiagnostics: sessionDiagnostics.snapshot(),
       };
     } finally {
@@ -241,8 +258,10 @@ class CopilotRuntimeProvider implements RuntimeProvider {
   private async sendAndWaitForCompletion(
     session: Awaited<ReturnType<CopilotClient["createSession"]>>,
     prompt: string
-  ): Promise<AssistantMessageEvent | undefined> {
+  ): Promise<SettledCopilotResponse> {
     let lastAssistantMessage: AssistantMessageEvent | undefined;
+    let latestAssistantText: string | undefined;
+    const assistantTextByMessageId = new Map<string, string>();
     let idleObserved = false;
     let lastEventAt = Date.now();
     let sessionError: Error | undefined;
@@ -250,6 +269,15 @@ class CopilotRuntimeProvider implements RuntimeProvider {
       lastEventAt = Date.now();
       if (event.type === "assistant.message") {
         lastAssistantMessage = event;
+        latestAssistantText = this.extractAssistantText(event);
+        return;
+      }
+      if (event.type === "assistant.message_delta") {
+        const nextAssistantText = `${
+          assistantTextByMessageId.get(event.data.messageId) ?? ""
+        }${event.data.deltaContent}`;
+        assistantTextByMessageId.set(event.data.messageId, nextAssistantText);
+        latestAssistantText = nextAssistantText;
         return;
       }
       if (event.type === "session.idle") {
@@ -271,20 +299,23 @@ class CopilotRuntimeProvider implements RuntimeProvider {
         if (sessionError) {
           throw sessionError;
         }
-        if (idleObserved) {
-          return lastAssistantMessage;
-        }
         if (
-          lastAssistantMessage &&
-          Date.now() - lastEventAt >= SESSION_ASSISTANT_SETTLE_MS
+          idleObserved &&
+          Date.now() - lastEventAt >= SESSION_IDLE_SETTLE_MS
         ) {
-          return lastAssistantMessage;
+          return this.buildSettledCopilotResponse(
+            lastAssistantMessage,
+            latestAssistantText
+          );
         }
         await delay(SESSION_COMPLETION_POLL_MS);
       }
 
-      if (lastAssistantMessage) {
-        return lastAssistantMessage;
+      if (lastAssistantMessage || latestAssistantText !== undefined) {
+        return this.buildSettledCopilotResponse(
+          lastAssistantMessage,
+          latestAssistantText
+        );
       }
       throw new Error(
         `Timeout after ${SESSION_COMPLETION_TIMEOUT_MS}ms waiting for session completion`
@@ -292,6 +323,17 @@ class CopilotRuntimeProvider implements RuntimeProvider {
     } finally {
       unsubscribe();
     }
+  }
+
+  private buildSettledCopilotResponse(
+    assistantMessage: AssistantMessageEvent | undefined,
+    assistantText: string | undefined
+  ): SettledCopilotResponse {
+    return {
+      assistantMessage,
+      assistantText:
+        assistantText ?? this.extractAssistantText(assistantMessage),
+    };
   }
 
   private async openSession(
@@ -564,7 +606,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
     const completion =
       (await response.json()) as LmStudioChatCompletionResponse;
     const assistantText = extractLmStudioAssistantText(completion);
-    if (!assistantText) {
+    if (assistantText === undefined) {
       throw new Error("LM Studio returned no assistant message content.");
     }
 
