@@ -9,10 +9,10 @@ import type {
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
 } from "@min-kb-app/shared";
-import Ansi from "ansi-to-react";
+import * as RawAnsiModule from "ansi-to-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { API_ROOT } from "../api";
+import { API_ROOT, api } from "../api";
 import {
   type OrchestratorScheduleDraft,
   OrchestratorScheduleModal,
@@ -43,6 +43,17 @@ interface OrchestratorPaneProps {
   onDeleteSchedule: (scheduleId: string, sessionId: string) => void;
   onSessionUpdate: (session: OrchestratorSession) => void;
 }
+
+const TERMINAL_HISTORY_PAGE_LINE_LIMIT = 2_000;
+const INITIAL_TERMINAL_TAIL_LINE_LIMIT = 200;
+type AnsiComponentProps = {
+  children?: string;
+  linkify?: boolean | "fuzzy";
+  className?: string;
+  useClasses?: boolean;
+};
+
+const Ansi = resolveAnsiComponent(RawAnsiModule);
 
 export function OrchestratorPane(props: OrchestratorPaneProps) {
   const [title, setTitle] = useState("");
@@ -76,11 +87,23 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const [streamState, setStreamState] = useState<"idle" | "live" | "closed">(
     "idle"
   );
+  const [terminalStartOffset, setTerminalStartOffset] = useState(() =>
+    getTerminalTailStartOffset(props.session)
+  );
+  const [loadingMoreOutput, setLoadingMoreOutput] = useState(false);
+  const [terminalHistoryError, setTerminalHistoryError] = useState<
+    string | undefined
+  >();
   const [streamReconnectToken, setStreamReconnectToken] = useState(0);
   const terminalRef = useRef<HTMLDivElement>(null);
   const sessionUpdateRef = useRef(props.onSessionUpdate);
   const streamOffsetRef = useRef(props.session?.logSize ?? 0);
   const reconnectTimeoutRef = useRef<number | undefined>(undefined);
+  const scrollBehaviorRef = useRef<"bottom" | "preserve">("bottom");
+  const scrollSnapshotRef = useRef<{
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
   const projectPathDatalistId = "orchestrator-project-paths";
   const modelOptions = useMemo(() => {
     if (props.models.length > 0) {
@@ -203,7 +226,11 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     setDelegatePrompt("");
     setDelegateAttachment(undefined);
     setTerminalInput("");
+    scrollBehaviorRef.current = "bottom";
     setTerminalOutput(props.session?.terminalTail ?? "");
+    setTerminalStartOffset(getTerminalTailStartOffset(props.session));
+    setLoadingMoreOutput(false);
+    setTerminalHistoryError(undefined);
     setQueueOpen(false);
     setScheduleModalOpen(false);
     setEditingSchedule(undefined);
@@ -233,11 +260,13 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     if (!terminalTail) {
       return;
     }
-    setTerminalOutput((current) =>
-      current.length === 0 || terminalTail.length > current.length
-        ? terminalTail
-        : current
-    );
+    setTerminalOutput((current) => {
+      if (current.length === 0 || terminalTail.length > current.length) {
+        scrollBehaviorRef.current = "bottom";
+        return terminalTail;
+      }
+      return current;
+    });
   }, [props.session?.terminalTail, props.session?.logSize]);
 
   useEffect(() => {
@@ -245,7 +274,15 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     if (!terminal) {
       return;
     }
-    terminal.scrollTop = terminal.scrollHeight;
+    if (scrollBehaviorRef.current === "preserve" && scrollSnapshotRef.current) {
+      terminal.scrollTop =
+        scrollSnapshotRef.current.scrollTop +
+        (terminal.scrollHeight - scrollSnapshotRef.current.scrollHeight);
+    } else {
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+    scrollBehaviorRef.current = "bottom";
+    scrollSnapshotRef.current = null;
   }, [terminalOutput]);
 
   useEffect(() => {
@@ -281,6 +318,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       };
       streamOffsetRef.current = payload.nextOffset;
       if (payload.chunk.length > 0) {
+        scrollBehaviorRef.current = "bottom";
         setTerminalOutput((current) => `${current}${payload.chunk}`);
       }
     };
@@ -329,6 +367,49 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       setStreamState("closed");
     };
   }, [props.session?.sessionId, streamReconnectToken]);
+
+  const canLoadMoreOutput = !!props.session && terminalStartOffset > 0;
+
+  async function handleLoadMoreOutput() {
+    if (!props.session || loadingMoreOutput || terminalStartOffset <= 0) {
+      return;
+    }
+
+    setLoadingMoreOutput(true);
+    setTerminalHistoryError(undefined);
+
+    try {
+      const terminal = terminalRef.current;
+      if (terminal) {
+        scrollSnapshotRef.current = {
+          scrollTop: terminal.scrollTop,
+          scrollHeight: terminal.scrollHeight,
+        };
+        scrollBehaviorRef.current = "preserve";
+      }
+      const historyChunk = await api.getOrchestratorTerminalHistory(
+        props.session.sessionId,
+        terminalStartOffset
+      );
+      if (historyChunk.chunk.length > 0) {
+        setTerminalOutput((current) => `${historyChunk.chunk}${current}`);
+      } else {
+        scrollBehaviorRef.current = "bottom";
+        scrollSnapshotRef.current = null;
+      }
+      setTerminalStartOffset(historyChunk.startOffset);
+    } catch (error) {
+      scrollBehaviorRef.current = "bottom";
+      scrollSnapshotRef.current = null;
+      setTerminalHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Failed to load older tmux output."
+      );
+    } finally {
+      setLoadingMoreOutput(false);
+    }
+  }
 
   const capabilityMessage = useMemo(() => {
     if (!props.capabilities) {
@@ -944,6 +1025,27 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             <span className="panel-caption orchestrator-toolbar-status">
               Primary workspace
             </span>
+            {canLoadMoreOutput ? (
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={
+                  loadingMoreOutput
+                    ? "Loading older output"
+                    : "Load 2k more lines"
+                }
+                disabled={props.pending || loadingMoreOutput}
+                onClick={() => void handleLoadMoreOutput()}
+              >
+                <ButtonContent
+                  icon={<ScrollIcon />}
+                  label={
+                    loadingMoreOutput ? "Loading..." : "Load 2k more lines"
+                  }
+                  compactLabel="Load more"
+                />
+              </button>
+            ) : null}
             <button
               type="button"
               className="ghost-button"
@@ -960,9 +1062,19 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           </div>
         </div>
         <div className="terminal-toolbar-note field-note">
+          {canLoadMoreOutput
+            ? `Showing the latest ${INITIAL_TERMINAL_TAIL_LINE_LIMIT.toLocaleString()} lines. Load more to prepend older tmux output in ${TERMINAL_HISTORY_PAGE_LINE_LIMIT.toLocaleString()}-line pages.`
+            : "Showing all tmux output currently saved for this pane."}{" "}
           Starting a new tmux session closes the current pane. Previous tmux
           output will no longer be available here.
         </div>
+        {terminalHistoryError ? (
+          <div className="terminal-toolbar-note">
+            <div className="inline-error-banner" role="alert">
+              {terminalHistoryError}
+            </div>
+          </div>
+        ) : null}
         <div className="terminal-output" ref={terminalRef}>
           <Ansi linkify={false}>
             {terminalOutput || "[min-kb-app] Waiting for tmux output...\n"}
@@ -1104,6 +1216,43 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       />
     </section>
   );
+}
+
+function getTerminalTailStartOffset(session?: OrchestratorSession): number {
+  if (!session) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    session.logSize - new TextEncoder().encode(session.terminalTail).length
+  );
+}
+
+function resolveAnsiComponent(
+  moduleExport: unknown
+): (props: AnsiComponentProps) => ReactNode {
+  if (typeof moduleExport === "function") {
+    return moduleExport as (props: AnsiComponentProps) => ReactNode;
+  }
+  if (!moduleExport || typeof moduleExport !== "object") {
+    throw new Error("ansi-to-react did not export a React component.");
+  }
+
+  const levelOneDefault = "default" in moduleExport ? moduleExport.default : undefined;
+  if (typeof levelOneDefault === "function") {
+    return levelOneDefault as (props: AnsiComponentProps) => ReactNode;
+  }
+  if (
+    levelOneDefault &&
+    typeof levelOneDefault === "object" &&
+    "default" in levelOneDefault &&
+    typeof levelOneDefault.default === "function"
+  ) {
+    return levelOneDefault.default as (props: AnsiComponentProps) => ReactNode;
+  }
+
+  throw new Error("ansi-to-react did not export a React component.");
 }
 
 function ButtonContent(props: {
@@ -1281,6 +1430,17 @@ function RestartIcon() {
       <path
         fill="currentColor"
         d="M12 5a7 7 0 1 1-6.71 9h2.1A5 5 0 1 0 8.46 8.46L11 11H4V4l3.04 3.04A6.97 6.97 0 0 1 12 5Z"
+      />
+    </svg>
+  );
+}
+
+function ScrollIcon() {
+  return (
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M7 3h7a5 5 0 0 1 0 10H9v4.17l1.59-1.58L12 17l-4 4-4-4 1.41-1.41L7 17.17V3Zm2 8h5a3 3 0 1 0 0-6H9v6Z"
       />
     </svg>
   );

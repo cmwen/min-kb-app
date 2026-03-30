@@ -41,6 +41,7 @@ import {
 import type { MinKbWorkspace } from "./workspace.js";
 
 export const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
+export const ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT = 200;
 
 const ORCHESTRATOR_STATE_FILENAME = "ORCHESTRATOR.json";
 const ORCHESTRATOR_JOB_FILENAME = "JOB.json";
@@ -470,6 +471,36 @@ export async function readOrchestratorTerminalChunk(
   };
 }
 
+export async function readOrchestratorTerminalHistoryChunk(
+  workspace: MinKbWorkspace,
+  sessionId: string,
+  beforeOffset: number,
+  maxLines = 2_000
+): Promise<{
+  chunk: string;
+  startOffset: number;
+  endOffset: number;
+  hasMoreBefore: boolean;
+  lineCount: number;
+}> {
+  const statePath = await findOrchestratorStatePath(workspace, sessionId);
+  if (!statePath) {
+    throw new Error(`Orchestrator session not found: ${sessionId}`);
+  }
+
+  const logPath = path.join(path.dirname(statePath), ORCHESTRATOR_TERMINAL_LOG);
+  const raw = await fs
+    .readFile(logPath)
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        return Buffer.alloc(0);
+      }
+      throw error;
+    });
+
+  return sliceTerminalRangeByLines(raw, beforeOffset, maxLines);
+}
+
 export async function getOrchestratorTerminalSize(
   workspace: MinKbWorkspace,
   sessionId: string
@@ -848,15 +879,14 @@ async function writeOrchestratorSchedule(
 
 async function readTerminalTail(
   sessionDirectory: string,
-  maxBytes = 64_000
+  maxLines = ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT
 ): Promise<{ content: string; size: number }> {
   const logPath = path.join(sessionDirectory, ORCHESTRATOR_TERMINAL_LOG);
   try {
     const raw = await fs.readFile(logPath);
+    const tail = sliceTerminalRangeByLines(raw, raw.length, maxLines);
     return {
-      content: raw
-        .subarray(Math.max(0, raw.length - maxBytes))
-        .toString("utf8"),
+      content: tail.chunk,
       size: raw.length,
     };
   } catch (error) {
@@ -865,6 +895,70 @@ async function readTerminalTail(
     }
     throw error;
   }
+}
+
+function sliceTerminalRangeByLines(
+  raw: Buffer,
+  endOffset: number,
+  maxLines: number
+): {
+  chunk: string;
+  startOffset: number;
+  endOffset: number;
+  hasMoreBefore: boolean;
+  lineCount: number;
+} {
+  const normalizedMaxLines = Math.max(1, Math.floor(maxLines));
+  const clampedEndOffset = Math.max(0, Math.min(raw.length, endOffset));
+  if (clampedEndOffset === 0) {
+    return {
+      chunk: "",
+      startOffset: 0,
+      endOffset: 0,
+      hasMoreBefore: false,
+      lineCount: 0,
+    };
+  }
+
+  const effectiveEndOffset =
+    raw[clampedEndOffset - 1] === 0x0a
+      ? clampedEndOffset - 1
+      : clampedEndOffset;
+  let newlineCount = 0;
+  let startOffset = 0;
+
+  for (let index = effectiveEndOffset - 1; index >= 0; index -= 1) {
+    if (raw[index] !== 0x0a) {
+      continue;
+    }
+    newlineCount += 1;
+    if (newlineCount === normalizedMaxLines) {
+      startOffset = index + 1;
+      break;
+    }
+  }
+
+  const chunk = raw.subarray(startOffset, clampedEndOffset).toString("utf8");
+  return {
+    chunk,
+    startOffset,
+    endOffset: clampedEndOffset,
+    hasMoreBefore: startOffset > 0,
+    lineCount: countTerminalLines(chunk),
+  };
+}
+
+function countTerminalLines(content: string): number {
+  if (!content) {
+    return 0;
+  }
+
+  const normalized = content.endsWith("\n") ? content.slice(0, -1) : content;
+  if (normalized.length === 0) {
+    return 0;
+  }
+
+  return normalized.split("\n").length;
 }
 
 async function findOrchestratorStatePath(

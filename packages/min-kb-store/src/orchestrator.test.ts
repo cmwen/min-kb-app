@@ -10,6 +10,8 @@ import {
   deleteOrchestratorSession,
   discoverCopilotCustomAgents,
   getOrchestratorSession,
+  ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT,
+  readOrchestratorTerminalHistoryChunk,
   resolveWorkspace,
   toOrchestratorChatSummary,
   updateOrchestratorSession,
@@ -299,6 +301,111 @@ describe("orchestrator session persistence", () => {
     await expect(
       getOrchestratorSession(workspace, created.sessionId)
     ).rejects.toThrow(/not found/);
+  });
+
+  it("returns only the most recent 200 tmux log lines in session payloads", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const created = await createOrchestratorSession(workspace, {
+      title: "Fix auth flow",
+      projectPath: root,
+      projectPurpose: "Repair the authentication redirect",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "orchestrator-auth-fix-a1b2",
+      tmuxPaneId: "%42",
+      startedAt: "2026-03-20T12:00:00Z",
+    });
+    const logPath = path.join(created.sessionDirectory, "terminal", "pane.log");
+    const logLines = Array.from(
+      { length: 2_500 },
+      (_, index) => `line ${index + 1}`
+    );
+    await writeFile(logPath, `${logLines.join("\n")}\n`, "utf8");
+
+    const session = await getOrchestratorSession(workspace, created.sessionId);
+
+    expect(session.logSize).toBeGreaterThan(session.terminalTail.length);
+    expect(session.terminalTail.split("\n").filter(Boolean)).toHaveLength(
+      ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT
+    );
+    expect(session.terminalTail).toContain(
+      `line ${2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT + 1}`
+    );
+    expect(session.terminalTail).not.toContain(
+      `line ${2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT}`
+    );
+    expect(session.terminalTail).toContain("line 2500");
+  });
+
+  it("reads older tmux log history in 2000-line chunks", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const created = await createOrchestratorSession(workspace, {
+      title: "Fix auth flow",
+      projectPath: root,
+      projectPurpose: "Repair the authentication redirect",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "orchestrator-auth-fix-a1b2",
+      tmuxPaneId: "%42",
+      startedAt: "2026-03-20T12:00:00Z",
+    });
+    const logPath = path.join(created.sessionDirectory, "terminal", "pane.log");
+    const logLines = Array.from(
+      { length: 2_500 },
+      (_, index) => `line ${index + 1}`
+    );
+    const fullLog = `${logLines.join("\n")}\n`;
+    await writeFile(logPath, fullLog, "utf8");
+
+    const recentSession = await getOrchestratorSession(
+      workspace,
+      created.sessionId
+    );
+    const beforeOffset =
+      Buffer.byteLength(fullLog) -
+      Buffer.byteLength(recentSession.terminalTail);
+    const chunk = await readOrchestratorTerminalHistoryChunk(
+      workspace,
+      created.sessionId,
+      beforeOffset
+    );
+    const olderChunk = await readOrchestratorTerminalHistoryChunk(
+      workspace,
+      created.sessionId,
+      chunk.startOffset
+    );
+
+    expect(chunk.startOffset).toBeGreaterThan(0);
+    expect(chunk.endOffset).toBe(beforeOffset);
+    expect(chunk.hasMoreBefore).toBe(true);
+    expect(chunk.lineCount).toBe(2_000);
+    expect(chunk.chunk).toContain(
+      `line ${2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT - 2_000 + 1}`
+    );
+    expect(chunk.chunk).toContain(
+      `line ${2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT}`
+    );
+    expect(chunk.chunk).not.toContain(
+      `line ${2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT + 1}`
+    );
+
+    expect(olderChunk.startOffset).toBe(0);
+    expect(olderChunk.endOffset).toBe(chunk.startOffset);
+    expect(olderChunk.hasMoreBefore).toBe(false);
+    expect(olderChunk.lineCount).toBe(
+      2_500 - ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT - 2_000
+    );
+    expect(olderChunk.chunk).toContain("line 1");
+    expect(olderChunk.chunk).toContain("line 300");
+    expect(olderChunk.chunk).not.toContain("line 301");
   });
 });
 

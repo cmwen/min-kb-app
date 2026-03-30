@@ -598,6 +598,133 @@ describe("OrchestratorPane", () => {
     expect(instances[1]?.url).toContain("offset=5");
   });
 
+  it("loads older tmux output on demand without rewinding the live stream", async () => {
+    const user = userEvent.setup();
+    const logLines = Array.from(
+      { length: 2_500 },
+      (_, index) => `line ${index + 1}`
+    );
+    const recentOutput = `${logLines.slice(500).join("\n")}\n`;
+    const olderOutput = `${logLines.slice(0, 500).join("\n")}\n`;
+    const fullLog = `${logLines.join("\n")}\n`;
+    const beforeOffset =
+      Buffer.byteLength(fullLog) - Buffer.byteLength(recentOutput);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          chunk: olderOutput,
+          startOffset: 0,
+          endOffset: beforeOffset,
+          hasMoreBefore: false,
+          lineCount: 500,
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const eventSourceUrls: string[] = [];
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+
+      constructor(url: string) {
+        eventSourceUrls.push(url);
+      }
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: ["/tmp/another-project"],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "running",
+          activeJobId: "job-1",
+          lastJobId: "job-1",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail: recentOutput,
+          logSize: Buffer.byteLength(fullLog),
+        }}
+        schedules={[]}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Load 2k more lines" })
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", { name: "Load 2k more lines" })
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/orchestrator/sessions/2026-03-20-repo-support/terminal?before=${beforeOffset}`,
+        undefined
+      )
+    );
+    await waitFor(() => expect(document.body.textContent).toContain("line 1"));
+    expect(eventSourceUrls).toEqual([
+      `/api/orchestrator/sessions/2026-03-20-repo-support/stream?offset=${Buffer.byteLength(fullLog)}`,
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Load 2k more lines" })
+    ).toBeNull();
+  });
+
   it("keeps the task queue collapsed until users open it", async () => {
     const user = userEvent.setup();
     class MockEventSource {

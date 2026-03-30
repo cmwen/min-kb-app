@@ -22,6 +22,14 @@ import type {
 
 export const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "";
 
+type OrchestratorTerminalHistoryChunkResponse = {
+  chunk: string;
+  startOffset: number;
+  endOffset: number;
+  hasMoreBefore: boolean;
+  lineCount: number;
+};
+
 export const api = {
   getWorkspace: () => request<WorkspaceSummary>("/api/workspace"),
   listAgents: () => request<AgentSummary[]>("/api/agents"),
@@ -126,6 +134,10 @@ export const api = {
         },
         body: JSON.stringify(requestBody),
       }
+    ),
+  getOrchestratorTerminalHistory: (sessionId: string, beforeOffset: number) =>
+    request<OrchestratorTerminalHistoryChunkResponse>(
+      `/api/orchestrator/sessions/${sessionId}/terminal?before=${beforeOffset}`
     ),
   cancelOrchestratorJob: (sessionId: string) =>
     request<OrchestratorSession>(

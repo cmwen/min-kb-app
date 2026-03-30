@@ -22,6 +22,7 @@ import {
   orchestratorHistoryRoot,
   pathExists,
   readOrchestratorTerminalChunk,
+  readOrchestratorTerminalHistoryChunk,
   resetOrchestratorTerminalLog,
   toOrchestratorChatSummary,
   updateOrchestratorJob,
@@ -136,7 +137,7 @@ export class TmuxOrchestratorService {
   }
 
   async listChatSummaries(): Promise<ChatSessionSummary[]> {
-    const sessions = await this.listSessions();
+    const sessions = await listOrchestratorSessions(this.workspace);
     return sessions.map((session) => toOrchestratorChatSummary(session));
   }
 
@@ -524,6 +525,25 @@ export class TmuxOrchestratorService {
     offset: number
   ): Promise<{ chunk: string; nextOffset: number }> {
     return readOrchestratorTerminalChunk(this.workspace, sessionId, offset);
+  }
+
+  async readTerminalHistoryChunk(
+    sessionId: string,
+    beforeOffset: number,
+    maxLines = 2_000
+  ): Promise<{
+    chunk: string;
+    startOffset: number;
+    endOffset: number;
+    hasMoreBefore: boolean;
+    lineCount: number;
+  }> {
+    return readOrchestratorTerminalHistoryChunk(
+      this.workspace,
+      sessionId,
+      beforeOffset,
+      maxLines
+    );
   }
 
   async getTerminalSize(sessionId: string): Promise<number> {

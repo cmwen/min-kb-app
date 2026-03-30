@@ -48,6 +48,7 @@ import {
   orchestratorTerminalInputSchema,
 } from "@min-kb-app/shared";
 import { type Context, Hono } from "hono";
+import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import {
   buildMemoryAnalysisPrompt,
   buildMemoryAnalysisRuntimeConfig,
@@ -86,10 +87,13 @@ const port = Number(process.env.MIN_KB_APP_PORT ?? 8787);
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const webDistRoot = path.resolve(runtimeDir, "../../web/dist");
 const webDistIndex = path.join(webDistRoot, "index.html");
+const ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT = 2_000;
 
 app.onError((error, context) => {
-  console.error(error);
-  return context.json({ error: error.message }, 500);
+  const status = getHttpErrorStatus(error);
+  const log = status >= 500 ? console.error : console.warn;
+  log(error);
+  return context.json({ error: getHttpErrorMessage(error) }, status);
 });
 
 app.get("/api/health", async (context) => {
@@ -276,6 +280,31 @@ app.post("/api/orchestrator/sessions", async (context) => {
 app.get("/api/orchestrator/sessions/:sessionId", async (context) => {
   return context.json(
     await orchestrator.getSession(context.req.param("sessionId"))
+  );
+});
+
+app.get("/api/orchestrator/sessions/:sessionId/terminal", async (context) => {
+  const sessionId = context.req.param("sessionId");
+  const requestedBefore = Number.parseInt(
+    context.req.query("before") ?? Number.MAX_SAFE_INTEGER.toString(),
+    10
+  );
+  const beforeOffset =
+    Number.isFinite(requestedBefore) && requestedBefore >= 0
+      ? requestedBefore
+      : Number.MAX_SAFE_INTEGER;
+  const requestedMaxLines = Number.parseInt(
+    context.req.query("maxLines") ??
+      ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT.toString(),
+    10
+  );
+  const maxLines =
+    Number.isFinite(requestedMaxLines) && requestedMaxLines > 0
+      ? Math.min(requestedMaxLines, ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT)
+      : ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT;
+
+  return context.json(
+    await orchestrator.readTerminalHistoryChunk(sessionId, beforeOffset, maxLines)
   );
 });
 
