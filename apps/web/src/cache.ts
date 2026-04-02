@@ -3,7 +3,6 @@ import type {
   ChatProviderDescriptor,
   ChatRequest,
   ChatRuntimeConfig,
-  ChatSession,
   ChatSessionSummary,
   ModelDescriptor,
   WorkspaceSummary,
@@ -23,7 +22,7 @@ import {
   type UiPreferences,
 } from "./ui-preferences";
 
-const SNAPSHOT_KEY = "min-kb-app:snapshot";
+const SNAPSHOT_KEY = "min-kb-app:snapshot:v2";
 const QUEUE_KEY = "min-kb-app:queue";
 const DRAFT_PREFIX = "min-kb-app:draft:";
 const UI_PREFERENCES_KEY = "min-kb-app:ui-preferences";
@@ -37,7 +36,6 @@ export interface CachedSnapshot {
   defaultProvider: string;
   models: ModelDescriptor[];
   sessionsByAgent: Record<string, ChatSessionSummary[]>;
-  threadsByKey: Record<string, ChatSession>;
 }
 
 export interface QueuedMessage {
@@ -66,7 +64,6 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
-      threadsByKey: {},
     };
   }
 
@@ -78,7 +75,6 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: parsed.defaultProvider ?? DEFAULT_CHAT_PROVIDER,
       models: parsed.models ?? [],
       sessionsByAgent: parsed.sessionsByAgent ?? {},
-      threadsByKey: parsed.threadsByKey ?? {},
       workspace: parsed.workspace,
     };
   } catch {
@@ -88,7 +84,6 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
-      threadsByKey: {},
     };
   }
 }

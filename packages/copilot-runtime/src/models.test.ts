@@ -1,4 +1,5 @@
 import type { ModelInfo } from "@github/copilot-sdk";
+import { DEFAULT_CHAT_MODEL } from "@min-kb-app/shared";
 import { describe, expect, it } from "vitest";
 import {
   COPILOT_RUNTIME_PROVIDER,
@@ -37,6 +38,7 @@ describe("inferModelProvider", () => {
   it("maps well-known model families", () => {
     expect(inferModelProvider("claude-sonnet-4.5")).toBe("Anthropic");
     expect(inferModelProvider("gemini-3-pro-preview")).toBe("Google");
+    expect(inferModelProvider("grok-code-fast-1")).toBe("xAI");
     expect(inferModelProvider("gpt-5.4")).toBe("OpenAI");
   });
 });
@@ -80,6 +82,16 @@ describe("mapLmStudioModelToDescriptor", () => {
       runtimeProvider: LM_STUDIO_RUNTIME_PROVIDER.id,
       provider: "lmstudio-community",
       supportedReasoningEfforts: [],
+    });
+  });
+});
+
+describe("LM_STUDIO_RUNTIME_PROVIDER", () => {
+  it("exposes prompt-backed skill support without MCP wiring", () => {
+    expect(LM_STUDIO_RUNTIME_PROVIDER.capabilities).toEqual({
+      supportsReasoningEffort: false,
+      supportsSkills: true,
+      supportsMcpServers: false,
     });
   });
 });
@@ -263,12 +275,23 @@ describe("mergeModelCatalogs", () => {
     expect(
       FALLBACK_MODELS.some(
         (model) =>
-          model.id === "gpt-5" &&
+          model.id === DEFAULT_CHAT_MODEL &&
           model.runtimeProvider === COPILOT_RUNTIME_PROVIDER.id
       )
     ).toBe(true);
     expect(
       FALLBACK_MODELS.some((model) => model.id === "claude-sonnet-4.6")
     ).toBe(true);
+    expect(
+      FALLBACK_MODELS.find((model) => model.id === "gpt-5-mini")
+        ?.premiumRequestMultiplier
+    ).toBe(0);
+    expect(
+      FALLBACK_MODELS.find((model) => model.id === "gpt-5.1-codex-mini")
+    ).toMatchObject({
+      displayName: "GPT-5.1 Codex Mini (Preview)",
+      provider: "OpenAI",
+      premiumRequestMultiplier: 0.33,
+    });
   });
 });

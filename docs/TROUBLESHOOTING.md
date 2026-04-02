@@ -38,7 +38,7 @@ Check the composer footer and runtime controls:
 
 - no agent selected means the send button stays disabled
 - invalid MCP JSON blocks sending until the JSON parses again
-- some providers intentionally disable skills, MCP servers, or reasoning effort based on their capability flags
+- some providers intentionally disable skills, MCP servers, or reasoning effort based on their capability flags; LM Studio keeps skills enabled as prompt context but still disables MCP wiring and reasoning effort controls
 - runtime/network failures queue the message for retry instead of silently dropping it
 
 If the message only contains an attachment, keep in mind the runtime still requires at least one of `prompt` or `attachment`; an empty prompt plus a valid attachment is allowed.
@@ -55,7 +55,7 @@ UI preferences such as theme, visible models, sidebar width, and sidebar collaps
 
 Existing sessions load the runtime config saved in that session's `RUNTIME.json`. If an older session has unexpected model, reasoning, skills, or MCP values, inspect the saved file in the session directory.
 
-The saved config is provider-aware. If a session was last used with LM Studio, the UI may disable Copilot-only controls until you switch the provider back.
+The saved config is provider-aware. If a session was last used with LM Studio, the UI will still keep skills available, but Copilot-only controls like MCP wiring remain disabled until you switch the provider back.
 
 ## My attachment is missing or will not open
 

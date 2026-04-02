@@ -8,6 +8,7 @@ import {
   getAgentById,
   listAgents,
   listSkillsForAgent,
+  loadEnabledSkillDocumentsForAgent,
   type MinKbWorkspace,
   pathExists,
 } from "@min-kb-app/min-kb-store";
@@ -51,6 +52,7 @@ export interface SendRuntimeMessageInput {
 
 interface NormalizedSendRuntimeMessageInput
   extends Omit<SendRuntimeMessageInput, "config"> {
+  agent?: AgentSummary;
   config: ChatRuntimeConfig;
 }
 
@@ -99,6 +101,8 @@ const SESSION_IDLE_SETTLE_MS = 100;
 const SESSION_COMPLETION_POLL_MS = 50;
 const SESSION_COMPLETION_TIMEOUT_MS = 600000;
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
+const DEFAULT_LM_STUDIO_MODEL_DISCOVERY_TIMEOUT_MS = 15000;
+const DEFAULT_LM_STUDIO_CHAT_TIMEOUT_MS = SESSION_COMPLETION_TIMEOUT_MS;
 
 export class ChatRuntimeService {
   private readonly providers: RuntimeProvider[];
@@ -115,7 +119,7 @@ export class ChatRuntimeService {
     this.workspace = workspace;
     this.providers = [
       new CopilotRuntimeProvider(workspace),
-      new LmStudioRuntimeProvider(options),
+      new LmStudioRuntimeProvider(workspace, options),
     ];
     this.providersById = new Map(
       this.providers.map((provider) => [provider.descriptor.id, provider])
@@ -158,6 +162,7 @@ export class ChatRuntimeService {
     );
     return this.getProvider(normalizedConfig.provider).sendMessage({
       ...input,
+      agent,
       config: normalizedConfig,
     });
   }
@@ -519,8 +524,13 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
   readonly descriptor = LM_STUDIO_RUNTIME_PROVIDER;
   private readonly baseUrl: string;
   private readonly configuredModel: string | undefined;
+  private readonly modelDiscoveryTimeoutMs: number;
+  private readonly chatTimeoutMs: number;
 
-  constructor(options?: { lmStudioBaseUrl?: string; lmStudioModel?: string }) {
+  constructor(
+    private readonly workspace: MinKbWorkspace,
+    options?: { lmStudioBaseUrl?: string; lmStudioModel?: string }
+  ) {
     this.baseUrl = normalizeBaseUrl(
       options?.lmStudioBaseUrl ??
         process.env.MIN_KB_APP_LM_STUDIO_BASE_URL ??
@@ -531,11 +541,24 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
       options?.lmStudioModel ??
       process.env.MIN_KB_APP_LM_STUDIO_MODEL ??
       process.env.LM_STUDIO_MODEL;
+    this.modelDiscoveryTimeoutMs = readPositiveIntegerEnv(
+      "MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS",
+      DEFAULT_LM_STUDIO_MODEL_DISCOVERY_TIMEOUT_MS
+    );
+    this.chatTimeoutMs = readPositiveIntegerEnv(
+      "MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS",
+      DEFAULT_LM_STUDIO_CHAT_TIMEOUT_MS
+    );
   }
 
   async listModels(): Promise<ModelDescriptor[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/models`);
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/models`,
+        undefined,
+        this.modelDiscoveryTimeoutMs,
+        "LM Studio model discovery"
+      );
       if (!response.ok) {
         throw new Error(
           `LM Studio model discovery failed with status ${response.status}.`
@@ -585,17 +608,34 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
     input: NormalizedSendRuntimeMessageInput
   ): Promise<SendRuntimeMessageResult> {
     const startedAt = Date.now();
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
+    const enabledSkills = await loadEnabledSkillDocumentsForAgent(
+      this.workspace,
+      input.agentId,
+      input.config.disabledSkills
+    );
+    const sessionDiagnostics =
+      buildPromptBackedSessionDiagnostics(enabledSkills);
+    const response = await fetchWithTimeout(
+      `${this.baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: input.config.model,
+          messages: buildLmStudioMessages({
+            conversation: input.conversation ?? [],
+            prompt: input.prompt,
+            agentPrompt: input.agent?.combinedPrompt,
+            enabledSkills,
+          }),
+          stream: false,
+        }),
       },
-      body: JSON.stringify({
-        model: input.config.model,
-        messages: buildLmStudioMessages(input.conversation ?? [], input.prompt),
-        stream: false,
-      }),
-    });
+      this.chatTimeoutMs,
+      "LM Studio chat request"
+    );
     if (!response.ok) {
       const body = await response.text();
       throw new Error(
@@ -617,6 +657,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
         input.config.model,
         Date.now() - startedAt
       ),
+      sessionDiagnostics,
     };
   }
 }
@@ -631,22 +672,40 @@ interface LmStudioChatCompletionResponse {
   };
   choices?: Array<{
     message?: {
-      content?: string | Array<{ type?: string; text?: string }>;
+      content?:
+        | string
+        | Array<{
+            type?: string;
+            text?: string;
+            thinking?: string;
+          }>;
     };
   }>;
 }
 
-function buildLmStudioMessages(
-  conversation: ConversationTurn[],
-  prompt: string
-): Array<{ role: "system" | "user" | "assistant"; content: string }> {
-  const history = conversation
+function buildLmStudioMessages(input: {
+  conversation: ConversationTurn[];
+  prompt: string;
+  agentPrompt?: string;
+  enabledSkills: Awaited<ReturnType<typeof loadEnabledSkillDocumentsForAgent>>;
+}): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  const history = input.conversation
     .map((turn) => ({
       role: mapSenderToOpenAiRole(turn.sender),
       content: turn.bodyMarkdown.trim(),
     }))
     .filter((turn) => turn.content.length > 0);
-  const normalizedPrompt = prompt.trim();
+  const systemPrompt = buildLmStudioSystemPrompt(
+    input.agentPrompt,
+    input.enabledSkills
+  );
+  if (systemPrompt) {
+    history.unshift({
+      role: "system",
+      content: systemPrompt,
+    });
+  }
+  const normalizedPrompt = input.prompt.trim();
   if (normalizedPrompt.length > 0) {
     history.push({
       role: "user",
@@ -654,6 +713,55 @@ function buildLmStudioMessages(
     });
   }
   return history;
+}
+
+function buildLmStudioSystemPrompt(
+  agentPrompt: string | undefined,
+  enabledSkills: Awaited<ReturnType<typeof loadEnabledSkillDocumentsForAgent>>
+): string | undefined {
+  const sections = [
+    "You are running through LM Studio inside min-kb-app.",
+    "Do not claim to have used MCP servers, tools, or external resources unless their results already appear in the conversation.",
+    enabledSkills.length > 0
+      ? [
+          "Skills selected for this run are provided below as live operating instructions.",
+          "Apply them when they are relevant instead of describing them as unavailable metadata.",
+          "If a skill calls for tools, commands, MCP servers, or external systems, only rely on results already present in the conversation and clearly state when something still needs to be run outside this LM Studio response.",
+        ].join(" ")
+      : undefined,
+    agentPrompt?.trim()
+      ? `## Agent instructions\n\n${agentPrompt.trim()}`
+      : undefined,
+    enabledSkills.length > 0
+      ? [
+          "## Enabled skills",
+          ...enabledSkills.map(
+            (skill) =>
+              `### ${skill.name}\n- Scope: ${skill.scope}\n- Description: ${skill.description}\n\n${skill.content.trim()}`
+          ),
+        ].join("\n\n")
+      : undefined,
+  ].filter((section): section is string => Boolean(section?.trim()));
+
+  if (sections.length === 0) {
+    return undefined;
+  }
+
+  return sections.join("\n\n");
+}
+
+function buildPromptBackedSessionDiagnostics(
+  enabledSkills: Awaited<ReturnType<typeof loadEnabledSkillDocumentsForAgent>>
+): SessionDiagnostics {
+  return {
+    loadedSkills: enabledSkills.map((skill) => ({
+      name: skill.name,
+      enabled: true,
+    })),
+    invokedSkills: [],
+    toolExecutions: [],
+    reportedLoadedSkills: true,
+  };
 }
 
 function mapSenderToOpenAiRole(
@@ -676,16 +784,40 @@ function extractLmStudioAssistantText(
 ): string | undefined {
   const content = completion.choices?.[0]?.message?.content;
   if (typeof content === "string") {
-    return content;
+    return stripLmStudioThinkingContent(content) || undefined;
   }
   if (Array.isArray(content)) {
     return content
-      .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+      .map((part) => {
+        const normalizedType = part.type?.trim().toLowerCase();
+        if (normalizedType === "thinking" || normalizedType === "reasoning") {
+          return "";
+        }
+        return stripLmStudioThinkingContent(part.text ?? "");
+      })
       .join("")
       .trim();
   }
   return undefined;
 }
+
+function stripLmStudioThinkingContent(content: string): string {
+  let normalizedContent = content;
+
+  for (const pattern of LM_STUDIO_THINKING_BLOCK_PATTERNS) {
+    normalizedContent = normalizedContent.replace(pattern, "");
+  }
+
+  return normalizedContent.trim();
+}
+
+const LM_STUDIO_THINKING_BLOCK_PATTERNS = [
+  /^\s*<think>\s*[\s\S]*?<\/think>\s*/gi,
+  /^\s*<thinking>\s*[\s\S]*?<\/thinking>\s*/gi,
+  /^\s*<reasoning>\s*[\s\S]*?<\/reasoning>\s*/gi,
+  /^\s*\[think(?:ing)?\]\s*[\s\S]*?\[\/think(?:ing)?\]\s*/gi,
+  /^\s*\{think(?:ing)?\}\s*[\s\S]*?\{\/think(?:ing)?\}\s*/gi,
+];
 
 function buildLmStudioUsageStats(
   completion: LmStudioChatCompletionResponse,
@@ -710,6 +842,49 @@ function buildLmStudioUsageStats(
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  label: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`${label} timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.message === "The operation was aborted")
+  );
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function createSessionDiagnosticsCollector() {

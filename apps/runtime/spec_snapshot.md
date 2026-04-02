@@ -1,0 +1,1852 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - img "8891" [ref=e5]
+    - generic [ref=e6]:
+      - link "8891新車" [ref=e7] [cursor=pointer]:
+        - /url: https://c.8891.com.tw
+        - img "8891新車" [ref=e8]
+      - generic [ref=e9]:
+        - link "找汽車" [ref=e10] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/Models
+        - link "購車菜單" [ref=e11] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/menu
+        - link "文章" [ref=e13] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/Articles
+        - link "影音" [ref=e15] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/movies
+        - link "比較" [ref=e16] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/photoModel-compare.html?myids=
+        - link "排行榜" [ref=e17] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/sales/top
+      - generic [ref=e19] [cursor=pointer]:
+        - img "搜尋" [ref=e20]
+        - text: Opel Combo
+    - generic [ref=e21]:
+      - link "8891汽車首頁" [ref=e22] [cursor=pointer]:
+        - /url: https://www.8891.com.tw
+        - img [ref=e23]
+        - text: 8891汽車首頁
+      - link "登入/註冊" [ref=e25] [cursor=pointer]:
+        - /url: https://www.8891.com.tw/user-signin.html
+        - img [ref=e26]
+        - text: 登入/註冊
+      - link "幫助" [ref=e28] [cursor=pointer]:
+        - /url: https://www.8891.com.tw/help-index.html
+        - img [ref=e29]
+        - text: 幫助
+      - generic [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - text: APP下載
+    - generic [ref=e33]:
+      - img [ref=e35]
+      - generic [ref=e37]:
+        - textbox "Skoda Kodiaq" [ref=e2851]
+        - button "搜尋" [ref=e40] [cursor=pointer]
+      - generic [ref=e41]:
+        - paragraph [ref=e42]: 熱門：
+        - list [ref=e43]:
+          - listitem [ref=e44]:
+            - link "Opel Combo" [ref=e45] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=18753
+          - listitem [ref=e46]:
+            - link "Skoda Kodiaq" [ref=e47] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=15816
+          - listitem [ref=e48]:
+            - link "Toyota RAV4" [ref=e49] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=10190
+          - listitem [ref=e50]:
+            - link "Toyota Corolla Altis" [ref=e51] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=10145
+          - listitem [ref=e52]:
+            - link "Toyota Corolla Cross" [ref=e53] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=17413
+          - listitem [ref=e54]:
+            - link "Mercedes-Benz CLA" [ref=e55] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=8993
+          - listitem [ref=e56]:
+            - link "Toyota Yaris Cross" [ref=e57] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=17982
+          - listitem [ref=e58]:
+            - link "Tesla Model Y" [ref=e59] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=17967
+          - listitem [ref=e60]:
+            - link "Lexus NX" [ref=e61] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=10518
+          - listitem [ref=e62]:
+            - link "Mercedes-Benz Electric CLA" [ref=e63] [cursor=pointer]:
+              - /url: /photoModel-info.html?k=18807
+  - generic [ref=e64]:
+    - generic [ref=e2852]:
+      - img [ref=e2854] [cursor=pointer]
+      - generic [ref=e2857]: 我的新車分期多少錢？
+      - generic [ref=e2858]:
+        - generic [ref=e2859]:
+          - generic [ref=e2860]: 頭款
+          - generic [ref=e2861]: 低至7.3萬
+        - generic [ref=e2862]:
+          - generic [ref=e2863]: 月貸
+          - generic [ref=e2864]: "?.2萬"
+        - generic [ref=e2865]:
+          - generic [ref=e2866]: 預估總額
+          - generic [ref=e2867]: 8?.3萬
+      - button "算分期方案" [ref=e2868] [cursor=pointer]:
+        - generic [ref=e2869]: 算分期方案
+    - generic [ref=e65]:
+      - generic [ref=e67]:
+        - textbox "搜尋規格配備項" [ref=e69]
+        - generic [ref=e70]:
+          - generic [ref=e71] [cursor=pointer]: 基本數據
+          - generic [ref=e72] [cursor=pointer]: 車身尺碼
+          - generic [ref=e73] [cursor=pointer]: 引擎
+          - generic [ref=e74] [cursor=pointer]: 變速箱
+          - generic [ref=e75] [cursor=pointer]: 電動馬達
+          - generic [ref=e76] [cursor=pointer]: 電池/充電
+          - generic [ref=e77] [cursor=pointer]: 底盤&制動
+          - generic [ref=e78] [cursor=pointer]: 底盤操控
+          - generic [ref=e79] [cursor=pointer]: 主動安全
+          - generic [ref=e80] [cursor=pointer]: 被動安全
+          - generic [ref=e81] [cursor=pointer]: 輔助/操控配置
+          - generic [ref=e82] [cursor=pointer]: 外觀配備
+          - generic [ref=e83] [cursor=pointer]: 內部配備
+          - generic [ref=e84] [cursor=pointer]: 多媒體配備
+          - generic [ref=e85] [cursor=pointer]: 智能駕駛配備
+          - generic [ref=e86] [cursor=pointer]: 座椅配備
+          - generic [ref=e87] [cursor=pointer]: 燈光配備
+          - generic [ref=e88] [cursor=pointer]: 空調/冰箱
+          - generic [ref=e89] [cursor=pointer]: 玻璃/後視鏡
+      - generic [ref=e90]:
+        - navigation [ref=e93]:
+          - list [ref=e94]:
+            - generic [ref=e95]: "當前位置:"
+            - listitem [ref=e96]:
+              - link "首頁" [ref=e98] [cursor=pointer]:
+                - /url: https://www.8891.com.tw
+              - text: ">"
+            - listitem [ref=e99]:
+              - link "找車" [ref=e101] [cursor=pointer]:
+                - /url: /Models
+              - text: ">"
+            - listitem [ref=e102]:
+              - link "Toyota" [ref=e104] [cursor=pointer]:
+                - /url: /Models/toyota
+              - text: ">"
+            - listitem [ref=e105]:
+              - link "Corolla Altis" [ref=e107] [cursor=pointer]:
+                - /url: /toyota/corolla-altis/Summary.html
+              - text: ">"
+            - listitem [ref=e108]:
+              - generic [ref=e109]: 規格配備
+        - generic [ref=e110]:
+          - generic [ref=e112]:
+            - generic [ref=e113]:
+              - generic [ref=e114]: 年式
+              - generic [ref=e116] [cursor=pointer]:
+                - radio "全部在售" [checked] [ref=e118]
+                - generic [ref=e120]: 全部在售
+              - generic [ref=e123] [cursor=pointer]:
+                - checkbox "2026年式" [ref=e125]
+                - generic [ref=e127]: 2026年式
+              - generic [ref=e130] [cursor=pointer]:
+                - text: 停售
+                - img "caret-down" [ref=e131]:
+                  - img [ref=e132]
+            - generic [ref=e134]:
+              - generic [ref=e135]: 排氣量
+              - generic [ref=e137]:
+                - generic [ref=e138] [cursor=pointer]:
+                  - checkbox "1.8L" [ref=e140]
+                  - generic [ref=e142]: 1.8L
+                - generic [ref=e143] [cursor=pointer]:
+                  - checkbox "2.0L" [ref=e145]
+                  - generic [ref=e147]: 2.0L
+            - generic [ref=e148]:
+              - generic [ref=e149]: 動力型式
+              - generic [ref=e151]:
+                - generic [ref=e152] [cursor=pointer]:
+                  - checkbox "汽油" [ref=e154]
+                  - generic [ref=e156]: 汽油
+                - generic [ref=e157] [cursor=pointer]:
+                  - checkbox "油電混合" [ref=e159]
+                  - generic [ref=e161]: 油電混合
+          - generic [ref=e163]:
+            - paragraph [ref=e167] [cursor=pointer]:
+              - generic [ref=e168]: 比較
+            - link "我的" [ref=e170] [cursor=pointer]:
+              - /url: https://www.8891.com.tw/user-signin.html?url=https://c.8891.com.tw/photoMember-index.html
+              - paragraph [ref=e172]: 我的
+            - paragraph [ref=e176] [cursor=pointer]: 客服
+            - paragraph [ref=e180] [cursor=pointer]: 下載APP
+          - generic [ref=e181]:
+            - generic [ref=e182]:
+              - generic [ref=e183]:
+                - generic [ref=e184]:
+                  - paragraph [ref=e185]: 共6款車型
+                  - generic [ref=e188]:
+                    - generic [ref=e189] [cursor=pointer]:
+                      - checkbox "高亮不同項" [ref=e191]
+                      - generic [ref=e193]: 高亮不同項
+                    - generic [ref=e194] [cursor=pointer]:
+                      - checkbox "隱藏相同項" [ref=e196]
+                      - generic [ref=e198]: 隱藏相同項
+                    - generic [ref=e199] [cursor=pointer]:
+                      - checkbox "隱藏暫無項" [checked] [ref=e201]
+                      - generic [ref=e203]: 隱藏暫無項
+                - paragraph [ref=e204]: 建議售價
+              - generic [ref=e205]:
+                - generic [ref=e206]:
+                  - generic [ref=e207]:
+                    - generic [ref=e208]:
+                      - generic [ref=e209] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e210] [cursor=pointer]:
+                        - img [ref=e211]
+                    - paragraph [ref=e214]: Corolla Altis 2026年式 汽油 經典
+                    - generic [ref=e215]:
+                      - link "查看車款資訊" [ref=e216] [cursor=pointer]:
+                        - /url: /kind-summary/10145
+                      - img "caret-right" [ref=e217]:
+                        - img [ref=e218]
+                    - generic [ref=e222] [cursor=pointer]: 比較
+                  - generic [ref=e223]:
+                    - generic [ref=e225]: 73.5萬
+                    - generic [ref=e226]:
+                      - generic [ref=e227] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e228] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27437&source=規格配備頁-汰舊換新&kindType=tradeIn
+                - generic [ref=e229]:
+                  - generic [ref=e230]:
+                    - generic [ref=e231]:
+                      - generic [ref=e232] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e233] [cursor=pointer]:
+                        - img [ref=e234]
+                    - paragraph [ref=e237]: Corolla Altis 2026年式 汽油 豪華
+                    - generic [ref=e241] [cursor=pointer]: 比較
+                  - generic [ref=e242]:
+                    - generic [ref=e244]: 80.5萬
+                    - generic [ref=e245]:
+                      - generic [ref=e246] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e247] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27438&source=規格配備頁-汰舊換新&kindType=tradeIn
+                - generic [ref=e248]:
+                  - generic [ref=e249]:
+                    - generic [ref=e250]:
+                      - generic [ref=e251] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e252] [cursor=pointer]:
+                        - img [ref=e253]
+                    - paragraph [ref=e256]: Corolla Altis 2026年式 Hybrid 豪華
+                    - generic [ref=e260] [cursor=pointer]: 比較
+                  - generic [ref=e261]:
+                    - generic [ref=e263]: 86.5萬
+                    - generic [ref=e264]:
+                      - generic [ref=e265] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e266] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27436&source=規格配備頁-汰舊換新&kindType=tradeIn
+                - generic [ref=e267]:
+                  - generic [ref=e268]:
+                    - generic [ref=e269]:
+                      - generic [ref=e270] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e271] [cursor=pointer]:
+                        - img [ref=e272]
+                    - paragraph [ref=e275]: Corolla Altis 2026年式 Hybrid 尊爵
+                    - generic [ref=e279] [cursor=pointer]: 比較
+                  - generic [ref=e280]:
+                    - generic [ref=e282]: 89.5萬
+                    - generic [ref=e283]:
+                      - generic [ref=e284] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e285] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27435&source=規格配備頁-汰舊換新&kindType=tradeIn
+                - generic [ref=e286]:
+                  - generic [ref=e287]:
+                    - generic [ref=e288]:
+                      - generic [ref=e289] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e290] [cursor=pointer]:
+                        - img [ref=e291]
+                    - paragraph [ref=e294]: Corolla Altis 2026年式 汽油 GR Sport
+                    - generic [ref=e298] [cursor=pointer]: 比較
+                  - generic [ref=e299]:
+                    - generic [ref=e301]: 91.5萬
+                    - generic [ref=e302]:
+                      - generic [ref=e303] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e304] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27439&source=規格配備頁-汰舊換新&kindType=tradeIn
+                - generic [ref=e305]:
+                  - generic [ref=e306]:
+                    - generic [ref=e307]:
+                      - generic [ref=e308] [cursor=pointer]: 釘在左側
+                      - img "close" [ref=e309] [cursor=pointer]:
+                        - img [ref=e310]
+                    - paragraph [ref=e313]: Corolla Altis 2026年式 Hybrid GR Sport
+                    - generic [ref=e317] [cursor=pointer]: 比較
+                  - generic [ref=e318]:
+                    - generic [ref=e320]: 91.9萬
+                    - generic [ref=e321]:
+                      - generic [ref=e322] [cursor=pointer]: 查成交價
+                      - link "汰舊換新" [ref=e323] [cursor=pointer]:
+                        - /url: /ask/price?b=46&k=10145&myid=27440&source=規格配備頁-汰舊換新&kindType=tradeIn
+            - generic [ref=e324]:
+              - heading "基本數據" [level=3] [ref=e326]
+              - list [ref=e327]:
+                - listitem [ref=e328]:
+                  - paragraph [ref=e329] [cursor=pointer]: 燃料稅(元)
+                  - paragraph [ref=e330]:
+                    - generic [ref=e331]: "4800"
+                  - paragraph [ref=e332]:
+                    - generic [ref=e333]: "4800"
+                  - paragraph [ref=e334]:
+                    - generic [ref=e335]: "4800"
+                  - paragraph [ref=e336]:
+                    - generic [ref=e337]: "4800"
+                  - paragraph [ref=e338]:
+                    - generic [ref=e339]: "6180"
+                  - paragraph [ref=e340]:
+                    - generic [ref=e341]: "4800"
+                - listitem [ref=e342]:
+                  - paragraph [ref=e343] [cursor=pointer]: 牌照稅(元)
+                  - paragraph [ref=e344]:
+                    - generic [ref=e345]: "7120"
+                  - paragraph [ref=e346]:
+                    - generic [ref=e347]: "7120"
+                  - paragraph [ref=e348]:
+                    - generic [ref=e349]: "7120"
+                  - paragraph [ref=e350]:
+                    - generic [ref=e351]: "7120"
+                  - paragraph [ref=e352]:
+                    - generic [ref=e353]: "11230"
+                  - paragraph [ref=e354]:
+                    - generic [ref=e355]: "7120"
+                - listitem [ref=e356]:
+                  - paragraph [ref=e357] [cursor=pointer]: 上市時間
+                  - paragraph [ref=e358]:
+                    - generic [ref=e359]: "2025.10"
+                  - paragraph [ref=e360]:
+                    - generic [ref=e361]: "2025.10"
+                  - paragraph [ref=e362]:
+                    - generic [ref=e363]: "2025.10"
+                  - paragraph [ref=e364]:
+                    - generic [ref=e365]: "2025.10"
+                  - paragraph [ref=e366]:
+                    - generic [ref=e367]: "2025.10"
+                  - paragraph [ref=e368]:
+                    - generic [ref=e369]: "2025.10"
+                - listitem [ref=e370]:
+                  - paragraph [ref=e371] [cursor=pointer]: 長×寬×高(mm)
+                  - paragraph [ref=e372]:
+                    - generic [ref=e373]: 4630×1780×1435
+                  - paragraph [ref=e374]:
+                    - generic [ref=e375]: 4630×1780×1435
+                  - paragraph [ref=e376]:
+                    - generic [ref=e377]: 4630×1780×1435
+                  - paragraph [ref=e378]:
+                    - generic [ref=e379]: 4630×1780×1435
+                  - paragraph [ref=e380]:
+                    - generic [ref=e381]: 4635×1780×1435
+                  - paragraph [ref=e382]:
+                    - generic [ref=e383]: 4635×1780×1435
+                - listitem [ref=e384]:
+                  - paragraph [ref=e385] [cursor=pointer]: 車身型式
+                  - paragraph [ref=e386]:
+                    - generic [ref=e387]: 中型房車
+                  - paragraph [ref=e388]:
+                    - generic [ref=e389]: 中型房車
+                  - paragraph [ref=e390]:
+                    - generic [ref=e391]: 中型房車
+                  - paragraph [ref=e392]:
+                    - generic [ref=e393]: 中型房車
+                  - paragraph [ref=e394]:
+                    - generic [ref=e395]: 中型房車
+                  - paragraph [ref=e396]:
+                    - generic [ref=e397]: 中型房車
+                - listitem [ref=e398]:
+                  - paragraph [ref=e399] [cursor=pointer]: 車門/乘客
+                  - paragraph [ref=e400]:
+                    - generic [ref=e401]: 4門5座
+                  - paragraph [ref=e402]:
+                    - generic [ref=e403]: 4門5座
+                  - paragraph [ref=e404]:
+                    - generic [ref=e405]: 4門5座
+                  - paragraph [ref=e406]:
+                    - generic [ref=e407]: 4門5座
+                  - paragraph [ref=e408]:
+                    - generic [ref=e409]: 4門5座
+                  - paragraph [ref=e410]:
+                    - generic [ref=e411]: 4門5座
+                - listitem [ref=e412]:
+                  - paragraph [ref=e413] [cursor=pointer]: 動力型式
+                  - paragraph [ref=e414]:
+                    - generic [ref=e415]: 汽油
+                  - paragraph [ref=e416]:
+                    - generic [ref=e417]: 汽油
+                  - paragraph [ref=e418]:
+                    - generic [ref=e419]: 油電混合
+                  - paragraph [ref=e420]:
+                    - generic [ref=e421]: 油電混合
+                  - paragraph [ref=e422]:
+                    - generic [ref=e423]: 汽油
+                  - paragraph [ref=e424]:
+                    - generic [ref=e425]: 油電混合
+                - listitem [ref=e426]:
+                  - paragraph [ref=e427] [cursor=pointer]: 排氣量(cc)
+                  - paragraph [ref=e428]:
+                    - generic [ref=e429]: "1798"
+                  - paragraph [ref=e430]:
+                    - generic [ref=e431]: "1798"
+                  - paragraph [ref=e432]:
+                    - generic [ref=e433]: "1798"
+                  - paragraph [ref=e434]:
+                    - generic [ref=e435]: "1798"
+                  - paragraph [ref=e436]:
+                    - generic [ref=e437]: "1987"
+                  - paragraph [ref=e438]:
+                    - generic [ref=e439]: "1798"
+                - listitem [ref=e440]:
+                  - paragraph [ref=e441] [cursor=pointer]: 變速系統
+                  - paragraph [ref=e442]:
+                    - generic [ref=e443]: 無段變速CVT
+                  - paragraph [ref=e444]:
+                    - generic [ref=e445]: 無段變速CVT
+                  - paragraph [ref=e446]:
+                    - generic [ref=e447]: 無段變速E-CVT
+                  - paragraph [ref=e448]:
+                    - generic [ref=e449]: 無段變速E-CVT
+                  - paragraph [ref=e450]:
+                    - generic [ref=e451]: 無段變速CVT
+                  - paragraph [ref=e452]:
+                    - generic [ref=e453]: 無段變速E-CVT
+                - listitem [ref=e454]:
+                  - paragraph [ref=e455] [cursor=pointer]: 能源署公佈平均油耗(km/ltr)
+                  - paragraph [ref=e456]:
+                    - generic [ref=e457]: "15.7"
+                  - paragraph [ref=e458]:
+                    - generic [ref=e459]: "15.6"
+                  - paragraph [ref=e460]:
+                    - generic [ref=e461]: "25.3"
+                  - paragraph [ref=e462]:
+                    - generic [ref=e463]: "25.3"
+                  - paragraph [ref=e464]:
+                    - generic [ref=e465]: "16.5"
+                  - paragraph [ref=e466]:
+                    - generic [ref=e467]: "23.5"
+                - listitem [ref=e468]:
+                  - paragraph [ref=e469] [cursor=pointer]: 能源效率等級(級)
+                  - paragraph [ref=e470]:
+                    - generic [ref=e471]: "3"
+                  - paragraph [ref=e472]:
+                    - generic [ref=e473]: "3"
+                  - paragraph [ref=e474]:
+                    - generic [ref=e475]: "1"
+                  - paragraph [ref=e476]:
+                    - generic [ref=e477]: "1"
+                  - paragraph [ref=e478]:
+                    - generic [ref=e479]: "2"
+                  - paragraph [ref=e480]:
+                    - generic [ref=e481]: "1"
+            - generic [ref=e482]:
+              - heading "車身尺碼" [level=3] [ref=e484]
+              - list [ref=e485]:
+                - listitem [ref=e486]:
+                  - paragraph [ref=e487] [cursor=pointer]: 車長(mm)
+                  - paragraph [ref=e488]:
+                    - generic [ref=e489]: "4630"
+                  - paragraph [ref=e490]:
+                    - generic [ref=e491]: "4630"
+                  - paragraph [ref=e492]:
+                    - generic [ref=e493]: "4630"
+                  - paragraph [ref=e494]:
+                    - generic [ref=e495]: "4630"
+                  - paragraph [ref=e496]:
+                    - generic [ref=e497]: "4635"
+                  - paragraph [ref=e498]:
+                    - generic [ref=e499]: "4635"
+                - listitem [ref=e500]:
+                  - paragraph [ref=e501] [cursor=pointer]: 車寬(mm)
+                  - paragraph [ref=e502]:
+                    - generic [ref=e503]: "1780"
+                  - paragraph [ref=e504]:
+                    - generic [ref=e505]: "1780"
+                  - paragraph [ref=e506]:
+                    - generic [ref=e507]: "1780"
+                  - paragraph [ref=e508]:
+                    - generic [ref=e509]: "1780"
+                  - paragraph [ref=e510]:
+                    - generic [ref=e511]: "1780"
+                  - paragraph [ref=e512]:
+                    - generic [ref=e513]: "1780"
+                - listitem [ref=e514]:
+                  - paragraph [ref=e515] [cursor=pointer]: 車高(mm)
+                  - paragraph [ref=e516]:
+                    - generic [ref=e517]: "1435"
+                  - paragraph [ref=e518]:
+                    - generic [ref=e519]: "1435"
+                  - paragraph [ref=e520]:
+                    - generic [ref=e521]: "1435"
+                  - paragraph [ref=e522]:
+                    - generic [ref=e523]: "1435"
+                  - paragraph [ref=e524]:
+                    - generic [ref=e525]: "1435"
+                  - paragraph [ref=e526]:
+                    - generic [ref=e527]: "1435"
+                - listitem [ref=e528]:
+                  - paragraph [ref=e529] [cursor=pointer]: 軸距(mm)
+                  - paragraph [ref=e530]:
+                    - generic [ref=e531]: "2700"
+                  - paragraph [ref=e532]:
+                    - generic [ref=e533]: "2700"
+                  - paragraph [ref=e534]:
+                    - generic [ref=e535]: "2700"
+                  - paragraph [ref=e536]:
+                    - generic [ref=e537]: "2700"
+                  - paragraph [ref=e538]:
+                    - generic [ref=e539]: "2700"
+                  - paragraph [ref=e540]:
+                    - generic [ref=e541]: "2700"
+                - listitem [ref=e542]:
+                  - paragraph [ref=e543] [cursor=pointer]: 車重(kg)
+                  - paragraph [ref=e544]:
+                    - generic [ref=e545]: "1275"
+                  - paragraph [ref=e546]:
+                    - generic [ref=e547]: "1280"
+                  - paragraph [ref=e548]:
+                    - generic [ref=e549]: "1365"
+                  - paragraph [ref=e550]:
+                    - generic [ref=e551]: "1370"
+                  - paragraph [ref=e552]:
+                    - generic [ref=e553]: "1370"
+                  - paragraph [ref=e554]:
+                    - generic [ref=e555]: "1395"
+                - listitem [ref=e556]:
+                  - paragraph [ref=e557] [cursor=pointer]: 車門數(門)
+                  - paragraph [ref=e558]:
+                    - generic [ref=e559]: "4"
+                  - paragraph [ref=e560]:
+                    - generic [ref=e561]: "4"
+                  - paragraph [ref=e562]:
+                    - generic [ref=e563]: "4"
+                  - paragraph [ref=e564]:
+                    - generic [ref=e565]: "4"
+                  - paragraph [ref=e566]:
+                    - generic [ref=e567]: "4"
+                  - paragraph [ref=e568]:
+                    - generic [ref=e569]: "4"
+                - listitem [ref=e570]:
+                  - paragraph [ref=e571] [cursor=pointer]: 乘客數(座)
+                  - paragraph [ref=e572]:
+                    - generic [ref=e573]: "5"
+                  - paragraph [ref=e574]:
+                    - generic [ref=e575]: "5"
+                  - paragraph [ref=e576]:
+                    - generic [ref=e577]: "5"
+                  - paragraph [ref=e578]:
+                    - generic [ref=e579]: "5"
+                  - paragraph [ref=e580]:
+                    - generic [ref=e581]: "5"
+                  - paragraph [ref=e582]:
+                    - generic [ref=e583]: "5"
+                - listitem [ref=e584]:
+                  - paragraph [ref=e585] [cursor=pointer]: 油箱容量(L)
+                  - paragraph [ref=e586]:
+                    - generic [ref=e587]: "47"
+                  - paragraph [ref=e588]:
+                    - generic [ref=e589]: "47"
+                  - paragraph [ref=e590]:
+                    - generic [ref=e591]: "43"
+                  - paragraph [ref=e592]:
+                    - generic [ref=e593]: "43"
+                  - paragraph [ref=e594]:
+                    - generic [ref=e595]: "50"
+                  - paragraph [ref=e596]:
+                    - generic [ref=e597]: "43"
+                - listitem [ref=e598]:
+                  - paragraph [ref=e599] [cursor=pointer]: 行李容積(L)
+                  - paragraph [ref=e600]:
+                    - generic [ref=e601]: "470"
+                  - paragraph [ref=e602]:
+                    - generic [ref=e603]: "470"
+                  - paragraph [ref=e604]:
+                    - generic [ref=e605]: "470"
+                  - paragraph [ref=e606]:
+                    - generic [ref=e607]: "470"
+                  - paragraph [ref=e608]:
+                    - generic [ref=e609]: "470"
+                  - paragraph [ref=e610]:
+                    - generic [ref=e611]: "470"
+                - listitem [ref=e612]:
+                  - paragraph [ref=e613] [cursor=pointer]: 最小迴轉半徑(m)
+                  - paragraph [ref=e614]:
+                    - generic [ref=e615]: "5.2"
+                  - paragraph [ref=e616]:
+                    - generic [ref=e617]: "5.2"
+                  - paragraph [ref=e618]:
+                    - generic [ref=e619]: "5.2"
+                  - paragraph [ref=e620]:
+                    - generic [ref=e621]: "5.2"
+                  - paragraph [ref=e622]:
+                    - generic [ref=e623]: "5.4"
+                  - paragraph [ref=e624]:
+                    - generic [ref=e625]: "5.4"
+            - generic [ref=e626]:
+              - heading "引擎" [level=3] [ref=e628]
+              - list [ref=e629]:
+                - listitem [ref=e630]:
+                  - paragraph [ref=e631] [cursor=pointer]: 進氣型式
+                  - paragraph [ref=e632]:
+                    - generic [ref=e633]: 自然進氣
+                  - paragraph [ref=e634]:
+                    - generic [ref=e635]: 自然進氣
+                  - paragraph [ref=e636]:
+                    - generic [ref=e637]: 自然進氣
+                  - paragraph [ref=e638]:
+                    - generic [ref=e639]: 自然進氣
+                  - paragraph [ref=e640]:
+                    - generic [ref=e641]: 自然進氣
+                  - paragraph [ref=e642]:
+                    - generic [ref=e643]: 自然進氣
+                - listitem [ref=e644]:
+                  - paragraph [ref=e645] [cursor=pointer]: 排氣量(cc)
+                  - paragraph [ref=e646]:
+                    - generic [ref=e647]: "1798"
+                  - paragraph [ref=e648]:
+                    - generic [ref=e649]: "1798"
+                  - paragraph [ref=e650]:
+                    - generic [ref=e651]: "1798"
+                  - paragraph [ref=e652]:
+                    - generic [ref=e653]: "1798"
+                  - paragraph [ref=e654]:
+                    - generic [ref=e655]: "1987"
+                  - paragraph [ref=e656]:
+                    - generic [ref=e657]: "1798"
+                - listitem [ref=e658]:
+                  - paragraph [ref=e659] [cursor=pointer]: 氣缸設計
+                  - paragraph [ref=e660]:
+                    - generic [ref=e661]: 直列4缸
+                  - paragraph [ref=e662]:
+                    - generic [ref=e663]: 直列4缸
+                  - paragraph [ref=e664]:
+                    - generic [ref=e665]: 直列4缸
+                  - paragraph [ref=e666]:
+                    - generic [ref=e667]: 直列4缸
+                  - paragraph [ref=e668]:
+                    - generic [ref=e669]: 直列4缸
+                  - paragraph [ref=e670]:
+                    - generic [ref=e671]: 直列4缸
+                - listitem [ref=e672]:
+                  - paragraph [ref=e673] [cursor=pointer]: 氣門數
+                  - paragraph [ref=e674]:
+                    - generic [ref=e675]: "16"
+                  - paragraph [ref=e676]:
+                    - generic [ref=e677]: "16"
+                  - paragraph [ref=e678]:
+                    - generic [ref=e679]: "16"
+                  - paragraph [ref=e680]:
+                    - generic [ref=e681]: "16"
+                  - paragraph [ref=e682]:
+                    - generic [ref=e683]: "16"
+                  - paragraph [ref=e684]:
+                    - generic [ref=e685]: "16"
+                - listitem [ref=e686]:
+                  - paragraph [ref=e687] [cursor=pointer]: 燃料種類
+                  - paragraph [ref=e688]:
+                    - generic [ref=e689]: 汽油
+                  - paragraph [ref=e690]:
+                    - generic [ref=e691]: 汽油
+                  - paragraph [ref=e692]:
+                    - generic [ref=e693]: 油電混合
+                  - paragraph [ref=e694]:
+                    - generic [ref=e695]: 油電混合
+                  - paragraph [ref=e696]:
+                    - generic [ref=e697]: 汽油
+                  - paragraph [ref=e698]:
+                    - generic [ref=e699]: 油電混合
+                - listitem [ref=e700]:
+                  - paragraph [ref=e701] [cursor=pointer]: 壓縮比
+                  - paragraph [ref=e702]:
+                    - generic [ref=e703]: 10.0:1
+                  - paragraph [ref=e704]:
+                    - generic [ref=e705]: 10.0:1
+                  - paragraph [ref=e706]:
+                    - generic [ref=e707]: 13.0:1
+                  - paragraph [ref=e708]:
+                    - generic [ref=e709]: 13.0:1
+                  - paragraph [ref=e710]:
+                    - generic [ref=e711]: 13.0:1
+                  - paragraph [ref=e712]:
+                    - generic [ref=e713]: 13.0:1
+                - listitem [ref=e714]:
+                  - paragraph [ref=e715] [cursor=pointer]: 供油方式
+                  - paragraph [ref=e716]:
+                    - generic [ref=e717]: 多點電噴
+                  - paragraph [ref=e718]:
+                    - generic [ref=e719]: 多點電噴
+                  - paragraph [ref=e720]:
+                    - generic [ref=e721]: 多點電噴
+                  - paragraph [ref=e722]:
+                    - generic [ref=e723]: 多點電噴
+                  - paragraph [ref=e724]:
+                    - generic [ref=e725]: 混合噴射
+                  - paragraph [ref=e726]:
+                    - generic [ref=e727]: 混合噴射
+                - listitem [ref=e728]:
+                  - paragraph [ref=e729] [cursor=pointer]: 最大馬力(hp/rpm)
+                  - paragraph [ref=e730]:
+                    - generic [ref=e731]: 140hp@6400rpm
+                  - paragraph [ref=e732]:
+                    - generic [ref=e733]: 140hp@6400rpm
+                  - paragraph [ref=e734]:
+                    - generic [ref=e735]: 98hp@5200rpm
+                  - paragraph [ref=e736]:
+                    - generic [ref=e737]: 98hp@5200rpm
+                  - paragraph [ref=e738]:
+                    - generic [ref=e739]: 170hp@6600rpm
+                  - paragraph [ref=e740]:
+                    - generic [ref=e741]: 98hp@5200rpm
+                - listitem [ref=e742]:
+                  - paragraph [ref=e743] [cursor=pointer]: 最大扭力(kgm/rpm)
+                  - paragraph [ref=e744]:
+                    - generic [ref=e745]: 17.5kgm@4000rpm
+                  - paragraph [ref=e746]:
+                    - generic [ref=e747]: 17.5kgm@4000rpm
+                  - paragraph [ref=e748]:
+                    - generic [ref=e749]: 14.5kgm@3600rpm
+                  - paragraph [ref=e750]:
+                    - generic [ref=e751]: 14.5kgm@3600rpm
+                  - paragraph [ref=e752]:
+                    - generic [ref=e753]: 20.4kgm@4400~4800rpm
+                  - paragraph [ref=e754]:
+                    - generic [ref=e755]: 14.5kgm@3600rpm
+                - listitem [ref=e756]:
+                  - paragraph [ref=e757] [cursor=pointer]: 馬達出力(hp/kgm)
+                  - paragraph [ref=e758]
+                  - paragraph [ref=e761]
+                  - paragraph [ref=e764]:
+                    - generic [ref=e765]: 72hp/16.6kgm
+                  - paragraph [ref=e766]:
+                    - generic [ref=e767]: 72hp/16.6kgm
+                  - paragraph [ref=e768]
+                  - paragraph [ref=e771]:
+                    - generic [ref=e772]: 72hp/16.6kgm
+                - listitem [ref=e773]:
+                  - paragraph [ref=e774] [cursor=pointer]: 油電綜效輸出(hp)
+                  - paragraph [ref=e775]
+                  - paragraph [ref=e778]
+                  - paragraph [ref=e781]:
+                    - generic [ref=e782]: 122hp
+                  - paragraph [ref=e783]:
+                    - generic [ref=e784]: 122hp
+                  - paragraph [ref=e785]
+                  - paragraph [ref=e788]:
+                    - generic [ref=e789]: 122hp
+                - listitem [ref=e790]:
+                  - paragraph [ref=e791] [cursor=pointer]: 引擎特有技術
+                  - paragraph [ref=e792]:
+                    - generic [ref=e793]:
+                      - generic [ref=e795]: 可變汽門正時
+                      - generic [ref=e797]: 可變進氣岐管
+                  - paragraph [ref=e798]:
+                    - generic [ref=e799]:
+                      - generic [ref=e801]: 可變汽門正時
+                      - generic [ref=e803]: 可變進氣岐管
+                  - paragraph [ref=e804]:
+                    - generic [ref=e807]: 可變汽門正時
+                  - paragraph [ref=e808]:
+                    - generic [ref=e811]: 可變汽門正時
+                  - paragraph [ref=e812]:
+                    - generic [ref=e815]: 可變汽門正時
+                  - paragraph [ref=e816]:
+                    - generic [ref=e819]: 可變汽門正時
+            - generic [ref=e820]:
+              - heading "變速箱" [level=3] [ref=e822]
+              - list [ref=e823]:
+                - listitem [ref=e824]:
+                  - paragraph [ref=e825] [cursor=pointer]: 變速系統
+                  - paragraph [ref=e826]:
+                    - generic [ref=e827]: 無段變速CVT
+                  - paragraph [ref=e828]:
+                    - generic [ref=e829]: 無段變速CVT
+                  - paragraph [ref=e830]:
+                    - generic [ref=e831]: 無段變速E-CVT
+                  - paragraph [ref=e832]:
+                    - generic [ref=e833]: 無段變速E-CVT
+                  - paragraph [ref=e834]:
+                    - generic [ref=e835]: 無段變速CVT
+                  - paragraph [ref=e836]:
+                    - generic [ref=e837]: 無段變速E-CVT
+            - generic [ref=e838]:
+              - heading "電動馬達" [level=3] [ref=e840]
+              - list [ref=e841]:
+                - listitem [ref=e842]:
+                  - paragraph [ref=e843] [cursor=pointer]: 電動馬達型式
+                  - paragraph [ref=e844]
+                  - paragraph [ref=e847]
+                  - paragraph [ref=e850]:
+                    - generic [ref=e851]: 永磁同步馬達
+                  - paragraph [ref=e852]:
+                    - generic [ref=e853]: 永磁同步馬達
+                  - paragraph [ref=e854]
+                  - paragraph [ref=e857]:
+                    - generic [ref=e858]: 永磁同步馬達
+                - listitem [ref=e859]:
+                  - paragraph [ref=e860] [cursor=pointer]: 馬達最大馬力(hp)
+                  - paragraph [ref=e861]
+                  - paragraph [ref=e864]
+                  - paragraph [ref=e867]:
+                    - generic [ref=e868]: 72hp
+                  - paragraph [ref=e869]:
+                    - generic [ref=e870]: 72hp
+                  - paragraph [ref=e871]
+                  - paragraph [ref=e874]:
+                    - generic [ref=e875]: 72hp
+                - listitem [ref=e876]:
+                  - paragraph [ref=e877] [cursor=pointer]: 馬達最大扭力(kgm)
+                  - paragraph [ref=e878]
+                  - paragraph [ref=e881]
+                  - paragraph [ref=e884]:
+                    - generic [ref=e885]: 16.6kgm
+                  - paragraph [ref=e886]:
+                    - generic [ref=e887]: 16.6kgm
+                  - paragraph [ref=e888]
+                  - paragraph [ref=e891]:
+                    - generic [ref=e892]: 16.6kgm
+                - listitem [ref=e893]:
+                  - paragraph [ref=e894] [cursor=pointer]: 電動馬達(具)
+                  - paragraph [ref=e895]
+                  - paragraph [ref=e898]
+                  - paragraph [ref=e901]:
+                    - generic [ref=e902]: "1"
+                  - paragraph [ref=e903]:
+                    - generic [ref=e904]: "1"
+                  - paragraph [ref=e905]
+                  - paragraph [ref=e908]:
+                    - generic [ref=e909]: "1"
+            - generic [ref=e910]:
+              - heading "電池/充電" [level=3] [ref=e912]
+              - list [ref=e913]:
+                - listitem [ref=e914]:
+                  - paragraph [ref=e915] [cursor=pointer]: 電池類型
+                  - paragraph [ref=e916]
+                  - paragraph [ref=e919]
+                  - paragraph [ref=e922]:
+                    - generic [ref=e923]: 鋰電池
+                  - paragraph [ref=e924]:
+                    - generic [ref=e925]: 鋰電池
+                  - paragraph [ref=e926]
+                  - paragraph [ref=e929]:
+                    - generic [ref=e930]: 鋰電池
+                - listitem [ref=e931]:
+                  - paragraph [ref=e932] [cursor=pointer]: 電池保固
+                  - paragraph [ref=e933]
+                  - paragraph [ref=e936]
+                  - paragraph [ref=e939]:
+                    - generic [ref=e940]: 8年/16萬km
+                  - paragraph [ref=e941]:
+                    - generic [ref=e942]: 8年/16萬km
+                  - paragraph [ref=e943]
+                  - paragraph [ref=e946]:
+                    - generic [ref=e947]: 8年/16萬km
+            - generic [ref=e948]:
+              - heading "底盤&制動" [level=3] [ref=e950]
+              - list [ref=e951]:
+                - listitem [ref=e952]:
+                  - paragraph [ref=e953] [cursor=pointer]: 驅動型式
+                  - paragraph [ref=e954]:
+                    - generic [ref=e955]: 前輪驅動
+                  - paragraph [ref=e956]:
+                    - generic [ref=e957]: 前輪驅動
+                  - paragraph [ref=e958]:
+                    - generic [ref=e959]: 前輪驅動
+                  - paragraph [ref=e960]:
+                    - generic [ref=e961]: 前輪驅動
+                  - paragraph [ref=e962]:
+                    - generic [ref=e963]: 前輪驅動
+                  - paragraph [ref=e964]:
+                    - generic [ref=e965]: 前輪驅動
+                - listitem [ref=e966]:
+                  - paragraph [ref=e967] [cursor=pointer]: 前輪懸吊
+                  - paragraph [ref=e968]:
+                    - generic [ref=e969]: 麥花臣
+                  - paragraph [ref=e970]:
+                    - generic [ref=e971]: 麥花臣
+                  - paragraph [ref=e972]:
+                    - generic [ref=e973]: 麥花臣
+                  - paragraph [ref=e974]:
+                    - generic [ref=e975]: 麥花臣
+                  - paragraph [ref=e976]:
+                    - generic [ref=e977]: 麥花臣
+                  - paragraph [ref=e978]:
+                    - generic [ref=e979]: 麥花臣
+                - listitem [ref=e980]:
+                  - paragraph [ref=e981] [cursor=pointer]: 後輪懸吊
+                  - paragraph [ref=e982]:
+                    - generic [ref=e985]: 扭力樑
+                  - paragraph [ref=e986]:
+                    - generic [ref=e989]: 扭力樑
+                  - paragraph [ref=e990]:
+                    - generic [ref=e993]: 雙A臂
+                  - paragraph [ref=e994]:
+                    - generic [ref=e997]: 雙A臂
+                  - paragraph [ref=e998]:
+                    - generic [ref=e1001]: 雙A臂
+                  - paragraph [ref=e1002]:
+                    - generic [ref=e1005]: 雙A臂
+                - listitem [ref=e1006]:
+                  - paragraph [ref=e1007] [cursor=pointer]: 煞車型式
+                  - paragraph [ref=e1008]:
+                    - generic [ref=e1009]:
+                      - generic [ref=e1011]: 前輪碟煞
+                      - generic [ref=e1013]: 後輪碟煞
+                  - paragraph [ref=e1014]:
+                    - generic [ref=e1015]:
+                      - generic [ref=e1017]: 前輪碟煞
+                      - generic [ref=e1019]: 後輪碟煞
+                  - paragraph [ref=e1020]:
+                    - generic [ref=e1021]:
+                      - generic [ref=e1023]: 前輪碟煞
+                      - generic [ref=e1025]: 後輪碟煞
+                  - paragraph [ref=e1026]:
+                    - generic [ref=e1027]:
+                      - generic [ref=e1029]: 前輪碟煞
+                      - generic [ref=e1031]: 後輪碟煞
+                  - paragraph [ref=e1032]:
+                    - generic [ref=e1033]:
+                      - generic [ref=e1035]: 前輪碟煞
+                      - generic [ref=e1037]: 後輪碟煞
+                  - paragraph [ref=e1038]:
+                    - generic [ref=e1039]:
+                      - generic [ref=e1041]: 前輪碟煞
+                      - generic [ref=e1043]: 後輪碟煞
+                - listitem [ref=e1044]:
+                  - paragraph [ref=e1045] [cursor=pointer]: 前輪尺碼
+                  - paragraph [ref=e1046]:
+                    - generic [ref=e1047]: 195/65 R15
+                  - paragraph [ref=e1048]:
+                    - generic [ref=e1049]: 205/55 R16
+                  - paragraph [ref=e1050]:
+                    - generic [ref=e1051]: 205/55 R16
+                  - paragraph [ref=e1052]:
+                    - generic [ref=e1053]: 205/55 R16
+                  - paragraph [ref=e1054]:
+                    - generic [ref=e1055]: 225/40 R18
+                  - paragraph [ref=e1056]:
+                    - generic [ref=e1057]: 225/40 R18
+                - listitem [ref=e1058]:
+                  - paragraph [ref=e1059] [cursor=pointer]: 後輪尺碼
+                  - paragraph [ref=e1060]:
+                    - generic [ref=e1061]: 195/65 R15
+                  - paragraph [ref=e1062]:
+                    - generic [ref=e1063]: 205/55 R16
+                  - paragraph [ref=e1064]:
+                    - generic [ref=e1065]: 205/55 R16
+                  - paragraph [ref=e1066]:
+                    - generic [ref=e1067]: 205/55 R16
+                  - paragraph [ref=e1068]:
+                    - generic [ref=e1069]: 225/40 R18
+                  - paragraph [ref=e1070]:
+                    - generic [ref=e1071]: 225/40 R18
+                - listitem [ref=e1072]:
+                  - paragraph [ref=e1073] [cursor=pointer]: 引擎擺放位置
+                  - paragraph [ref=e1074]:
+                    - generic [ref=e1075]: 前置
+                  - paragraph [ref=e1076]:
+                    - generic [ref=e1077]: 前置
+                  - paragraph [ref=e1078]:
+                    - generic [ref=e1079]: 前置
+                  - paragraph [ref=e1080]:
+                    - generic [ref=e1081]: 前置
+                  - paragraph [ref=e1082]:
+                    - generic [ref=e1083]: 前置
+                  - paragraph [ref=e1084]:
+                    - generic [ref=e1085]: 前置
+                - listitem [ref=e1086]:
+                  - paragraph [ref=e1087] [cursor=pointer]: 車體結構
+                  - paragraph [ref=e1088]:
+                    - generic [ref=e1089]: 承載式車身
+                  - paragraph [ref=e1090]:
+                    - generic [ref=e1091]: 承載式車身
+                  - paragraph [ref=e1092]:
+                    - generic [ref=e1093]: 承載式車身
+                  - paragraph [ref=e1094]:
+                    - generic [ref=e1095]: 承載式車身
+                  - paragraph [ref=e1096]:
+                    - generic [ref=e1097]: 承載式車身
+                  - paragraph [ref=e1098]:
+                    - generic [ref=e1099]: 承載式車身
+            - generic [ref=e1100]:
+              - heading "底盤操控 標配 選配 無" [level=3] [ref=e1102]:
+                - text: 底盤操控
+                - generic [ref=e1103]:
+                  - paragraph [ref=e1104]: 標配
+                  - paragraph [ref=e1106]: 選配
+                  - paragraph [ref=e1108]: 無
+              - list [ref=e1110]:
+                - listitem [ref=e1111]:
+                  - paragraph [ref=e1112] [cursor=pointer]: 駕駛模式選擇
+                  - paragraph [ref=e1113]
+                  - paragraph [ref=e1116]
+                  - paragraph [ref=e1120]
+                  - paragraph [ref=e1124]
+                  - paragraph [ref=e1128]
+                  - paragraph [ref=e1132]
+            - generic:
+              - list
+            - generic [ref=e1136]:
+              - heading "主動安全 標配 選配 無" [level=3] [ref=e1138]:
+                - text: 主動安全
+                - generic [ref=e1139]:
+                  - paragraph [ref=e1140]: 標配
+                  - paragraph [ref=e1142]: 選配
+                  - paragraph [ref=e1144]: 無
+              - list [ref=e1146]:
+                - listitem [ref=e1147]:
+                  - paragraph [ref=e1148] [cursor=pointer]: ABS防鎖死
+                  - paragraph [ref=e1149]
+                  - paragraph [ref=e1152]
+                  - paragraph [ref=e1155]
+                  - paragraph [ref=e1158]
+                  - paragraph [ref=e1161]
+                  - paragraph [ref=e1164]
+                - listitem [ref=e1167]:
+                  - paragraph [ref=e1168] [cursor=pointer]: 煞車輔助系統(EBA/BAS/BA等)
+                  - paragraph [ref=e1169]:
+                    - generic [ref=e1173]: BAS/EBD/BOS
+                  - paragraph [ref=e1174]:
+                    - generic [ref=e1178]: BAS/EBD/BOS
+                  - paragraph [ref=e1179]:
+                    - generic [ref=e1183]: BAS/EBD/BOS/ECB
+                  - paragraph [ref=e1184]:
+                    - generic [ref=e1188]: BAS/EBD/BOS/ECB
+                  - paragraph [ref=e1189]:
+                    - generic [ref=e1193]: BAS/EBD/BOS
+                  - paragraph [ref=e1194]:
+                    - generic [ref=e1198]: BAS/EBD/BOS
+                - listitem [ref=e1199]:
+                  - paragraph [ref=e1200] [cursor=pointer]: 動態穩定系統
+                  - paragraph [ref=e1201]:
+                    - generic [ref=e1205]: VSC
+                  - paragraph [ref=e1206]:
+                    - generic [ref=e1210]: VSC
+                  - paragraph [ref=e1211]:
+                    - generic [ref=e1215]: VSC
+                  - paragraph [ref=e1216]:
+                    - generic [ref=e1220]: VSC
+                  - paragraph [ref=e1221]:
+                    - generic [ref=e1225]: VSC
+                  - paragraph [ref=e1226]:
+                    - generic [ref=e1230]: VSC
+                - listitem [ref=e1231]:
+                  - paragraph [ref=e1232] [cursor=pointer]: 車道偏離警示
+                  - paragraph [ref=e1233]
+                  - paragraph [ref=e1236]
+                  - paragraph [ref=e1239]
+                  - paragraph [ref=e1242]
+                  - paragraph [ref=e1245]
+                  - paragraph [ref=e1248]
+                - listitem [ref=e1251]:
+                  - paragraph [ref=e1252] [cursor=pointer]: 循跡系統
+                  - paragraph [ref=e1253]:
+                    - generic [ref=e1257]: TRC
+                  - paragraph [ref=e1258]:
+                    - generic [ref=e1262]: TRC
+                  - paragraph [ref=e1263]:
+                    - generic [ref=e1267]: TRC
+                  - paragraph [ref=e1268]:
+                    - generic [ref=e1272]: TRC
+                  - paragraph [ref=e1273]:
+                    - generic [ref=e1277]: TRC
+                  - paragraph [ref=e1278]:
+                    - generic [ref=e1282]: TRC
+                - listitem [ref=e1283]:
+                  - paragraph [ref=e1284] [cursor=pointer]: 主動式智慧定速系統
+                  - paragraph [ref=e1285]:
+                    - generic [ref=e1289]: 全速域
+                  - paragraph [ref=e1290]:
+                    - generic [ref=e1294]: 全速域
+                  - paragraph [ref=e1295]:
+                    - generic [ref=e1299]: 全速域
+                  - paragraph [ref=e1300]:
+                    - generic [ref=e1304]: 全速域
+                  - paragraph [ref=e1305]:
+                    - generic [ref=e1309]: 全速域
+                  - paragraph [ref=e1310]:
+                    - generic [ref=e1314]: 全速域
+                - listitem [ref=e1315]:
+                  - paragraph [ref=e1316] [cursor=pointer]: 前方主動煞停輔助
+                  - paragraph [ref=e1317]
+                  - paragraph [ref=e1320]
+                  - paragraph [ref=e1323]
+                  - paragraph [ref=e1326]
+                  - paragraph [ref=e1329]
+                  - paragraph [ref=e1332]
+            - generic [ref=e1335]:
+              - heading "被動安全 標配 選配 無" [level=3] [ref=e1337]:
+                - text: 被動安全
+                - generic [ref=e1338]:
+                  - paragraph [ref=e1339]: 標配
+                  - paragraph [ref=e1341]: 選配
+                  - paragraph [ref=e1343]: 無
+              - list [ref=e1345]:
+                - listitem [ref=e1346]:
+                  - paragraph [ref=e1347] [cursor=pointer]: 前座正面氣囊
+                  - paragraph [ref=e1348]
+                  - paragraph [ref=e1351]
+                  - paragraph [ref=e1354]
+                  - paragraph [ref=e1357]
+                  - paragraph [ref=e1360]
+                  - paragraph [ref=e1363]
+                - listitem [ref=e1366]:
+                  - paragraph [ref=e1367] [cursor=pointer]: 前座側面氣囊
+                  - paragraph [ref=e1368]
+                  - paragraph [ref=e1371]
+                  - paragraph [ref=e1374]
+                  - paragraph [ref=e1377]
+                  - paragraph [ref=e1380]
+                  - paragraph [ref=e1383]
+                - listitem [ref=e1386]:
+                  - paragraph [ref=e1387] [cursor=pointer]: 側面氣簾
+                  - paragraph [ref=e1388]
+                  - paragraph [ref=e1391]
+                  - paragraph [ref=e1394]
+                  - paragraph [ref=e1397]
+                  - paragraph [ref=e1400]
+                  - paragraph [ref=e1403]
+                - listitem [ref=e1406]:
+                  - paragraph [ref=e1407] [cursor=pointer]: 膝部氣囊
+                  - paragraph [ref=e1408]:
+                    - generic [ref=e1412]: 主駕駛座
+                  - paragraph [ref=e1413]:
+                    - generic [ref=e1417]: 主駕駛座
+                  - paragraph [ref=e1418]:
+                    - generic [ref=e1422]: 主駕駛座
+                  - paragraph [ref=e1423]:
+                    - generic [ref=e1427]: 主駕駛座
+                  - paragraph [ref=e1428]:
+                    - generic [ref=e1432]: 主駕駛座
+                  - paragraph [ref=e1433]:
+                    - generic [ref=e1437]: 主駕駛座
+                - listitem [ref=e1438]:
+                  - paragraph [ref=e1439] [cursor=pointer]: 胎壓偵測
+                  - paragraph [ref=e1440]
+                  - paragraph [ref=e1443]
+                  - paragraph [ref=e1446]
+                  - paragraph [ref=e1449]
+                  - paragraph [ref=e1452]
+                  - paragraph [ref=e1455]
+                - listitem [ref=e1458]:
+                  - paragraph [ref=e1459] [cursor=pointer]: 兒童安全椅固定裝置
+                  - paragraph [ref=e1460]:
+                    - generic [ref=e1464]: ISO-FIX
+                  - paragraph [ref=e1465]:
+                    - generic [ref=e1469]: ISO-FIX
+                  - paragraph [ref=e1470]:
+                    - generic [ref=e1474]: ISO-FIX
+                  - paragraph [ref=e1475]:
+                    - generic [ref=e1479]: ISO-FIX
+                  - paragraph [ref=e1480]:
+                    - generic [ref=e1484]: ISO-FIX
+                  - paragraph [ref=e1485]:
+                    - generic [ref=e1489]: ISO-FIX
+                - listitem [ref=e1490]:
+                  - paragraph [ref=e1491] [cursor=pointer]: 後座安全帶未繫提醒
+                  - paragraph [ref=e1492]
+                  - paragraph [ref=e1495]
+                  - paragraph [ref=e1498]
+                  - paragraph [ref=e1501]
+                  - paragraph [ref=e1504]
+                  - paragraph [ref=e1507]
+                - listitem [ref=e1510]:
+                  - paragraph [ref=e1511] [cursor=pointer]: 被動行人保護
+                  - paragraph [ref=e1512]
+                  - paragraph [ref=e1515]
+                  - paragraph [ref=e1518]
+                  - paragraph [ref=e1521]
+                  - paragraph [ref=e1524]
+                  - paragraph [ref=e1527]
+            - generic [ref=e1530]:
+              - heading "輔助/操控配置 標配 選配 無" [level=3] [ref=e1532]:
+                - text: 輔助/操控配置
+                - generic [ref=e1533]:
+                  - paragraph [ref=e1534]: 標配
+                  - paragraph [ref=e1536]: 選配
+                  - paragraph [ref=e1538]: 無
+              - list [ref=e1540]:
+                - listitem [ref=e1541]:
+                  - paragraph [ref=e1542] [cursor=pointer]: 斜坡起步輔助
+                  - paragraph [ref=e1543]
+                  - paragraph [ref=e1546]
+                  - paragraph [ref=e1549]
+                  - paragraph [ref=e1552]
+                  - paragraph [ref=e1555]
+                  - paragraph [ref=e1558]
+                - listitem [ref=e1561]:
+                  - paragraph [ref=e1562] [cursor=pointer]: 定速系統
+                  - paragraph [ref=e1563]
+                  - paragraph [ref=e1566]
+                  - paragraph [ref=e1569]
+                  - paragraph [ref=e1572]
+                  - paragraph [ref=e1575]
+                  - paragraph [ref=e1578]
+                - listitem [ref=e1581]:
+                  - paragraph [ref=e1582] [cursor=pointer]: 盲點偵測系統
+                  - paragraph [ref=e1583]
+                  - paragraph [ref=e1586]
+                  - paragraph [ref=e1589]
+                  - paragraph [ref=e1592]
+                  - paragraph [ref=e1595]
+                  - paragraph [ref=e1598]
+                - listitem [ref=e1601]:
+                  - paragraph [ref=e1602] [cursor=pointer]: 車道維持輔助
+                  - paragraph [ref=e1603]
+                  - paragraph [ref=e1606]
+                  - paragraph [ref=e1609]
+                  - paragraph [ref=e1612]
+                  - paragraph [ref=e1615]
+                  - paragraph [ref=e1618]
+                - listitem [ref=e1621]:
+                  - paragraph [ref=e1622] [cursor=pointer]: 倒車雷達
+                  - paragraph [ref=e1623]
+                  - paragraph [ref=e1626]:
+                    - generic [ref=e1630]: 後
+                  - paragraph [ref=e1631]:
+                    - generic [ref=e1635]: 後
+                  - paragraph [ref=e1636]:
+                    - generic [ref=e1640]: 後
+                  - paragraph [ref=e1641]:
+                    - generic [ref=e1645]: 後
+                  - paragraph [ref=e1646]:
+                    - generic [ref=e1650]: 後
+                - listitem [ref=e1651]:
+                  - paragraph [ref=e1652] [cursor=pointer]: 倒車顯影系統
+                  - paragraph [ref=e1653]
+                  - paragraph [ref=e1656]
+                  - paragraph [ref=e1659]
+                  - paragraph [ref=e1662]
+                  - paragraph [ref=e1665]
+                  - paragraph [ref=e1668]
+            - generic [ref=e1671]:
+              - heading "外觀配備 標配 選配 無" [level=3] [ref=e1673]:
+                - text: 外觀配備
+                - generic [ref=e1674]:
+                  - paragraph [ref=e1675]: 標配
+                  - paragraph [ref=e1677]: 選配
+                  - paragraph [ref=e1679]: 無
+              - list [ref=e1681]:
+                - listitem [ref=e1682]:
+                  - paragraph [ref=e1683] [cursor=pointer]: 輪圈規格
+                  - paragraph [ref=e1684]:
+                    - generic [ref=e1688]: 15吋
+                  - paragraph [ref=e1689]:
+                    - generic [ref=e1693]: 16吋
+                  - paragraph [ref=e1694]:
+                    - generic [ref=e1698]: 16吋
+                  - paragraph [ref=e1699]:
+                    - generic [ref=e1703]: 16吋
+                  - paragraph [ref=e1704]:
+                    - generic [ref=e1708]: 18吋
+                  - paragraph [ref=e1709]:
+                    - generic [ref=e1713]: 18吋
+                - listitem [ref=e1714]:
+                  - paragraph [ref=e1715] [cursor=pointer]: 外觀套件
+                  - paragraph [ref=e1716]
+                  - paragraph [ref=e1719]
+                  - paragraph [ref=e1722]
+                  - paragraph [ref=e1725]
+                  - paragraph [ref=e1728]:
+                    - generic [ref=e1732]: GR Sport
+                  - paragraph [ref=e1733]:
+                    - generic [ref=e1737]: GR Sport
+                - listitem [ref=e1738]:
+                  - paragraph [ref=e1739] [cursor=pointer]: 後視鏡方向指示燈
+                  - paragraph [ref=e1740]
+                  - paragraph [ref=e1743]
+                  - paragraph [ref=e1746]
+                  - paragraph [ref=e1749]
+                  - paragraph [ref=e1752]
+                  - paragraph [ref=e1755]
+            - generic [ref=e1758]:
+              - heading "內部配備 標配 選配 無" [level=3] [ref=e1760]:
+                - text: 內部配備
+                - generic [ref=e1761]:
+                  - paragraph [ref=e1762]: 標配
+                  - paragraph [ref=e1764]: 選配
+                  - paragraph [ref=e1766]: 無
+              - list [ref=e1768]:
+                - listitem [ref=e1769]:
+                  - paragraph [ref=e1770] [cursor=pointer]: 方向盤材質
+                  - paragraph [ref=e1771]:
+                    - generic [ref=e1775]: 塑膠
+                  - paragraph [ref=e1776]:
+                    - generic [ref=e1780]: 塑膠
+                  - paragraph [ref=e1781]:
+                    - generic [ref=e1785]: 塑膠
+                  - paragraph [ref=e1786]:
+                    - generic [ref=e1790]: 真皮
+                  - paragraph [ref=e1791]:
+                    - generic [ref=e1795]: 真皮
+                  - paragraph [ref=e1796]:
+                    - generic [ref=e1800]: 真皮
+                - listitem [ref=e1801]:
+                  - paragraph [ref=e1802] [cursor=pointer]: 方向盤調整
+                  - paragraph [ref=e1803]:
+                    - generic [ref=e1804]:
+                      - generic [ref=e1807]: 上下
+                      - generic [ref=e1810]: 前後
+                  - paragraph [ref=e1811]:
+                    - generic [ref=e1812]:
+                      - generic [ref=e1815]: 上下
+                      - generic [ref=e1818]: 前後
+                  - paragraph [ref=e1819]:
+                    - generic [ref=e1820]:
+                      - generic [ref=e1823]: 上下
+                      - generic [ref=e1826]: 前後
+                  - paragraph [ref=e1827]:
+                    - generic [ref=e1828]:
+                      - generic [ref=e1831]: 上下
+                      - generic [ref=e1834]: 前後
+                  - paragraph [ref=e1835]:
+                    - generic [ref=e1836]:
+                      - generic [ref=e1839]: 上下
+                      - generic [ref=e1842]: 前後
+                  - paragraph [ref=e1843]:
+                    - generic [ref=e1844]:
+                      - generic [ref=e1847]: 上下
+                      - generic [ref=e1850]: 前後
+                - listitem [ref=e1851]:
+                  - paragraph [ref=e1852] [cursor=pointer]: 多功能方向盤
+                  - paragraph [ref=e1853]
+                  - paragraph [ref=e1856]
+                  - paragraph [ref=e1859]
+                  - paragraph [ref=e1862]
+                  - paragraph [ref=e1865]
+                  - paragraph [ref=e1868]
+                - listitem [ref=e1871]:
+                  - paragraph [ref=e1872] [cursor=pointer]: Keyless免匙系統
+                  - paragraph [ref=e1873]
+                  - paragraph [ref=e1876]
+                  - paragraph [ref=e1879]
+                  - paragraph [ref=e1882]
+                  - paragraph [ref=e1885]
+                  - paragraph [ref=e1888]
+                - listitem [ref=e1891]:
+                  - paragraph [ref=e1892] [cursor=pointer]: 數位儀錶
+                  - paragraph [ref=e1893]
+                  - paragraph [ref=e1896]
+                  - paragraph [ref=e1899]
+                  - paragraph [ref=e1902]:
+                    - generic [ref=e1906]: 12.3吋
+                  - paragraph [ref=e1907]:
+                    - generic [ref=e1911]: 12.3吋
+                  - paragraph [ref=e1912]:
+                    - generic [ref=e1916]: 12.3吋
+                - listitem [ref=e1917]:
+                  - paragraph [ref=e1918] [cursor=pointer]: 方向盤換檔撥片
+                  - paragraph [ref=e1919]
+                  - paragraph [ref=e1922]
+                  - paragraph [ref=e1925]
+                  - paragraph [ref=e1928]
+                  - paragraph [ref=e1931]
+                  - paragraph [ref=e1934]
+                - listitem [ref=e1937]:
+                  - paragraph [ref=e1938] [cursor=pointer]: 排擋形式
+                  - paragraph [ref=e1939]:
+                    - generic [ref=e1943]: 自動排擋桿
+                  - paragraph [ref=e1944]:
+                    - generic [ref=e1948]: 自動排擋桿
+                  - paragraph [ref=e1949]:
+                    - generic [ref=e1953]: 自動排擋桿
+                  - paragraph [ref=e1954]:
+                    - generic [ref=e1958]: 自動排擋桿
+                  - paragraph [ref=e1959]:
+                    - generic [ref=e1963]: 自動排擋桿
+                  - paragraph [ref=e1964]:
+                    - generic [ref=e1968]: 自動排擋桿
+                - listitem [ref=e1969]:
+                  - paragraph [ref=e1970] [cursor=pointer]: 鑰匙類型
+                  - paragraph [ref=e1971]:
+                    - generic [ref=e1975]: 機械鑰匙
+                  - paragraph [ref=e1976]:
+                    - generic [ref=e1980]: 遙控鑰匙
+                  - paragraph [ref=e1981]:
+                    - generic [ref=e1985]: 遙控鑰匙
+                  - paragraph [ref=e1986]:
+                    - generic [ref=e1990]: 遙控鑰匙
+                  - paragraph [ref=e1991]:
+                    - generic [ref=e1995]: 遙控鑰匙
+                  - paragraph [ref=e1996]:
+                    - generic [ref=e2000]: 遙控鑰匙
+            - generic [ref=e2001]:
+              - heading "多媒體配備 標配 選配 無" [level=3] [ref=e2003]:
+                - text: 多媒體配備
+                - generic [ref=e2004]:
+                  - paragraph [ref=e2005]: 標配
+                  - paragraph [ref=e2007]: 選配
+                  - paragraph [ref=e2009]: 無
+              - list [ref=e2011]:
+                - listitem [ref=e2012]:
+                  - paragraph [ref=e2013] [cursor=pointer]: 車載螢幕
+                  - paragraph [ref=e2014]
+                  - paragraph [ref=e2017]:
+                    - generic [ref=e2021]: 9吋
+                  - paragraph [ref=e2022]:
+                    - generic [ref=e2026]: 9吋
+                  - paragraph [ref=e2027]:
+                    - generic [ref=e2031]: 9吋
+                  - paragraph [ref=e2032]:
+                    - generic [ref=e2036]: 9吋
+                  - paragraph [ref=e2037]:
+                    - generic [ref=e2041]: 9吋
+                - listitem [ref=e2042]:
+                  - paragraph [ref=e2043] [cursor=pointer]: 藍牙通訊
+                  - paragraph [ref=e2044]
+                  - paragraph [ref=e2047]
+                  - paragraph [ref=e2050]
+                  - paragraph [ref=e2053]
+                  - paragraph [ref=e2056]
+                  - paragraph [ref=e2059]
+                - listitem [ref=e2062]:
+                  - paragraph [ref=e2063] [cursor=pointer]: 音響系統
+                  - paragraph [ref=e2064]
+                  - paragraph [ref=e2067]
+                  - paragraph [ref=e2070]
+                  - paragraph [ref=e2073]
+                  - paragraph [ref=e2076]
+                  - paragraph [ref=e2079]
+                - listitem [ref=e2082]:
+                  - paragraph [ref=e2083] [cursor=pointer]: 音響喇叭數量
+                  - paragraph [ref=e2084]:
+                    - generic [ref=e2088]: "4"
+                  - paragraph [ref=e2089]:
+                    - generic [ref=e2093]: "6"
+                  - paragraph [ref=e2094]:
+                    - generic [ref=e2098]: "6"
+                  - paragraph [ref=e2099]:
+                    - generic [ref=e2103]: "6"
+                  - paragraph [ref=e2104]:
+                    - generic [ref=e2108]: "6"
+                  - paragraph [ref=e2109]:
+                    - generic [ref=e2113]: "6"
+                - listitem [ref=e2114]:
+                  - paragraph [ref=e2115] [cursor=pointer]: Apple CarPlay
+                  - paragraph [ref=e2116]
+                  - paragraph [ref=e2119]:
+                    - generic [ref=e2123]: 無線
+                  - paragraph [ref=e2124]:
+                    - generic [ref=e2128]: 無線
+                  - paragraph [ref=e2129]:
+                    - generic [ref=e2133]: 無線
+                  - paragraph [ref=e2134]:
+                    - generic [ref=e2138]: 無線
+                  - paragraph [ref=e2139]:
+                    - generic [ref=e2143]: 無線
+                - listitem [ref=e2144]:
+                  - paragraph [ref=e2145] [cursor=pointer]: Android Auto
+                  - paragraph [ref=e2146]
+                  - paragraph [ref=e2149]:
+                    - generic [ref=e2153]: 無線
+                  - paragraph [ref=e2154]:
+                    - generic [ref=e2158]: 無線
+                  - paragraph [ref=e2159]:
+                    - generic [ref=e2163]: 無線
+                  - paragraph [ref=e2164]:
+                    - generic [ref=e2168]: 無線
+                  - paragraph [ref=e2169]:
+                    - generic [ref=e2173]: 無線
+            - generic [ref=e2174]:
+              - heading "智能駕駛配備 標配 選配 無" [level=3] [ref=e2176]:
+                - text: 智能駕駛配備
+                - generic [ref=e2177]:
+                  - paragraph [ref=e2178]: 標配
+                  - paragraph [ref=e2180]: 選配
+                  - paragraph [ref=e2182]: 無
+              - list [ref=e2184]:
+                - listitem [ref=e2185]:
+                  - paragraph [ref=e2186] [cursor=pointer]: 毫米波雷達(顆)
+                  - paragraph [ref=e2187]:
+                    - generic [ref=e2191]: "1"
+                  - paragraph [ref=e2192]:
+                    - generic [ref=e2196]: "1"
+                  - paragraph [ref=e2197]:
+                    - generic [ref=e2201]: "1"
+                  - paragraph [ref=e2202]:
+                    - generic [ref=e2206]: "1"
+                  - paragraph [ref=e2207]:
+                    - generic [ref=e2211]: "1"
+                  - paragraph [ref=e2212]:
+                    - generic [ref=e2216]: "1"
+            - generic [ref=e2217]:
+              - heading "座椅配備 標配 選配 無" [level=3] [ref=e2219]:
+                - text: 座椅配備
+                - generic [ref=e2220]:
+                  - paragraph [ref=e2221]: 標配
+                  - paragraph [ref=e2223]: 選配
+                  - paragraph [ref=e2225]: 無
+              - list [ref=e2227]:
+                - listitem [ref=e2228]:
+                  - paragraph [ref=e2229] [cursor=pointer]: 座椅材質
+                  - paragraph [ref=e2230]:
+                    - generic [ref=e2234]: 皮革
+                  - paragraph [ref=e2235]:
+                    - generic [ref=e2239]: 皮革
+                  - paragraph [ref=e2240]:
+                    - generic [ref=e2244]: 皮革
+                  - paragraph [ref=e2245]:
+                    - generic [ref=e2249]: 皮革
+                  - paragraph [ref=e2250]:
+                    - generic [ref=e2254]: 皮革
+                  - paragraph [ref=e2255]:
+                    - generic [ref=e2259]: 皮革
+                - listitem [ref=e2260]:
+                  - paragraph [ref=e2261] [cursor=pointer]: 座椅佈局
+                  - paragraph [ref=e2262]:
+                    - generic [ref=e2266]: 2+3
+                  - paragraph [ref=e2267]:
+                    - generic [ref=e2271]: 2+3
+                  - paragraph [ref=e2272]:
+                    - generic [ref=e2276]: 2+3
+                  - paragraph [ref=e2277]:
+                    - generic [ref=e2281]: 2+3
+                  - paragraph [ref=e2282]:
+                    - generic [ref=e2286]: 2+3
+                  - paragraph [ref=e2287]:
+                    - generic [ref=e2291]: 2+3
+                - listitem [ref=e2292]:
+                  - paragraph [ref=e2293] [cursor=pointer]: 主駕駛座椅調節
+                  - paragraph [ref=e2294]:
+                    - generic [ref=e2295]:
+                      - generic [ref=e2298]: 前後調節
+                      - generic [ref=e2301]: 靠背調節
+                      - generic [ref=e2304]: 高低調節
+                  - paragraph [ref=e2305]:
+                    - generic [ref=e2306]:
+                      - generic [ref=e2309]: 前後調節
+                      - generic [ref=e2312]: 靠背調節
+                      - generic [ref=e2315]: 高低調節
+                  - paragraph [ref=e2316]:
+                    - generic [ref=e2317]:
+                      - generic [ref=e2320]: 前後調節
+                      - generic [ref=e2323]: 靠背調節
+                      - generic [ref=e2326]: 高低調節
+                  - paragraph [ref=e2327]:
+                    - generic [ref=e2328]:
+                      - generic [ref=e2331]: 前後調節
+                      - generic [ref=e2334]: 靠背調節
+                      - generic [ref=e2337]: 高低調節
+                  - paragraph [ref=e2338]:
+                    - generic [ref=e2339]:
+                      - generic [ref=e2342]: 前後調節
+                      - generic [ref=e2345]: 靠背調節
+                      - generic [ref=e2348]: 高低調節
+                  - paragraph [ref=e2349]:
+                    - generic [ref=e2350]:
+                      - generic [ref=e2353]: 前後調節
+                      - generic [ref=e2356]: 靠背調節
+                      - generic [ref=e2359]: 高低調節
+                - listitem [ref=e2360]:
+                  - paragraph [ref=e2361] [cursor=pointer]: 副駕駛座椅調節
+                  - paragraph [ref=e2362]:
+                    - generic [ref=e2363]:
+                      - generic [ref=e2366]: 前後調節
+                      - generic [ref=e2369]: 靠背調節
+                  - paragraph [ref=e2370]:
+                    - generic [ref=e2371]:
+                      - generic [ref=e2374]: 前後調節
+                      - generic [ref=e2377]: 靠背調節
+                  - paragraph [ref=e2378]:
+                    - generic [ref=e2379]:
+                      - generic [ref=e2382]: 前後調節
+                      - generic [ref=e2385]: 靠背調節
+                  - paragraph [ref=e2386]:
+                    - generic [ref=e2387]:
+                      - generic [ref=e2390]: 前後調節
+                      - generic [ref=e2393]: 靠背調節
+                  - paragraph [ref=e2394]:
+                    - generic [ref=e2395]:
+                      - generic [ref=e2398]: 前後調節
+                      - generic [ref=e2401]: 靠背調節
+                      - generic [ref=e2404]: 高低調節
+                  - paragraph [ref=e2405]:
+                    - generic [ref=e2406]:
+                      - generic [ref=e2409]: 前後調節
+                      - generic [ref=e2412]: 靠背調節
+                      - generic [ref=e2415]: 高低調節
+                - listitem [ref=e2416]:
+                  - paragraph [ref=e2417] [cursor=pointer]: 二排座椅分離式傾倒
+                  - paragraph [ref=e2418]:
+                    - generic [ref=e2422]: 6/4
+                  - paragraph [ref=e2423]:
+                    - generic [ref=e2427]: 6/4
+                  - paragraph [ref=e2428]:
+                    - generic [ref=e2432]: 6/4
+                  - paragraph [ref=e2433]:
+                    - generic [ref=e2437]: 6/4
+                  - paragraph [ref=e2438]:
+                    - generic [ref=e2442]: 6/4
+                  - paragraph [ref=e2443]:
+                    - generic [ref=e2447]: 6/4
+            - generic [ref=e2448]:
+              - heading "燈光配備 標配 選配 無" [level=3] [ref=e2450]:
+                - text: 燈光配備
+                - generic [ref=e2451]:
+                  - paragraph [ref=e2452]: 標配
+                  - paragraph [ref=e2454]: 選配
+                  - paragraph [ref=e2456]: 無
+              - list [ref=e2458]:
+                - listitem [ref=e2459]:
+                  - paragraph [ref=e2460] [cursor=pointer]: 頭燈光源
+                  - paragraph [ref=e2461]:
+                    - generic [ref=e2465]: LED
+                  - paragraph [ref=e2466]:
+                    - generic [ref=e2470]: LED
+                  - paragraph [ref=e2471]:
+                    - generic [ref=e2475]: LED
+                  - paragraph [ref=e2476]:
+                    - generic [ref=e2480]: LED
+                  - paragraph [ref=e2481]:
+                    - generic [ref=e2485]: LED
+                  - paragraph [ref=e2486]:
+                    - generic [ref=e2490]: LED
+                - listitem [ref=e2491]:
+                  - paragraph [ref=e2492] [cursor=pointer]: 感應頭燈
+                  - paragraph [ref=e2493]
+                  - paragraph [ref=e2496]
+                  - paragraph [ref=e2499]
+                  - paragraph [ref=e2502]
+                  - paragraph [ref=e2505]
+                  - paragraph [ref=e2508]
+                - listitem [ref=e2511]:
+                  - paragraph [ref=e2512] [cursor=pointer]: 遠近光自動切換
+                  - paragraph [ref=e2513]
+                  - paragraph [ref=e2516]
+                  - paragraph [ref=e2519]
+                  - paragraph [ref=e2522]
+                  - paragraph [ref=e2525]
+                  - paragraph [ref=e2528]
+                - listitem [ref=e2531]:
+                  - paragraph [ref=e2532] [cursor=pointer]: LED日行燈
+                  - paragraph [ref=e2533]
+                  - paragraph [ref=e2536]
+                  - paragraph [ref=e2539]
+                  - paragraph [ref=e2542]
+                  - paragraph [ref=e2545]
+                  - paragraph [ref=e2548]
+                - listitem [ref=e2551]:
+                  - paragraph [ref=e2552] [cursor=pointer]: LED尾燈
+                  - paragraph [ref=e2553]
+                  - paragraph [ref=e2556]
+                  - paragraph [ref=e2559]
+                  - paragraph [ref=e2562]
+                  - paragraph [ref=e2565]
+                  - paragraph [ref=e2568]
+                - listitem [ref=e2571]:
+                  - paragraph [ref=e2572] [cursor=pointer]: 前霧燈
+                  - paragraph [ref=e2573]
+                  - paragraph [ref=e2576]
+                  - paragraph [ref=e2579]
+                  - paragraph [ref=e2582]
+                  - paragraph [ref=e2585]
+                  - paragraph [ref=e2588]
+                - listitem [ref=e2591]:
+                  - paragraph [ref=e2592] [cursor=pointer]: 後霧燈
+                  - paragraph [ref=e2593]
+                  - paragraph [ref=e2596]
+                  - paragraph [ref=e2599]
+                  - paragraph [ref=e2602]
+                  - paragraph [ref=e2605]
+                  - paragraph [ref=e2608]
+            - generic [ref=e2611]:
+              - heading "空調/冰箱 標配 選配 無" [level=3] [ref=e2613]:
+                - text: 空調/冰箱
+                - generic [ref=e2614]:
+                  - paragraph [ref=e2615]: 標配
+                  - paragraph [ref=e2617]: 選配
+                  - paragraph [ref=e2619]: 無
+              - list [ref=e2621]:
+                - listitem [ref=e2622]:
+                  - paragraph [ref=e2623] [cursor=pointer]: 空調控制方式
+                  - paragraph [ref=e2624]:
+                    - generic [ref=e2628]: 手動空調
+                  - paragraph [ref=e2629]:
+                    - generic [ref=e2633]: 單區恆溫空調
+                  - paragraph [ref=e2634]:
+                    - generic [ref=e2638]: 單區恆溫空調
+                  - paragraph [ref=e2639]:
+                    - generic [ref=e2643]: 單區恆溫空調
+                  - paragraph [ref=e2644]:
+                    - generic [ref=e2648]: 單區恆溫空調
+                  - paragraph [ref=e2649]:
+                    - generic [ref=e2653]: 單區恆溫空調
+                - listitem [ref=e2654]:
+                  - paragraph [ref=e2655] [cursor=pointer]: 後座出風口
+                  - paragraph [ref=e2656]
+                  - paragraph [ref=e2659]
+                  - paragraph [ref=e2662]
+                  - paragraph [ref=e2665]
+                  - paragraph [ref=e2668]
+                  - paragraph [ref=e2671]
+            - generic [ref=e2674]:
+              - heading "玻璃/後視鏡 標配 選配 無" [level=3] [ref=e2676]:
+                - text: 玻璃/後視鏡
+                - generic [ref=e2677]:
+                  - paragraph [ref=e2678]: 標配
+                  - paragraph [ref=e2680]: 選配
+                  - paragraph [ref=e2682]: 無
+              - list [ref=e2684]:
+                - listitem [ref=e2685]:
+                  - paragraph [ref=e2686] [cursor=pointer]: 後視鏡電動折疊
+                  - paragraph [ref=e2687]
+                  - paragraph [ref=e2690]
+                  - paragraph [ref=e2693]
+                  - paragraph [ref=e2696]
+                  - paragraph [ref=e2699]
+                  - paragraph [ref=e2702]
+                - listitem [ref=e2705]:
+                  - paragraph [ref=e2706] [cursor=pointer]: 後視鏡電動調整
+                  - paragraph [ref=e2707]
+                  - paragraph [ref=e2710]
+                  - paragraph [ref=e2713]
+                  - paragraph [ref=e2716]
+                  - paragraph [ref=e2719]
+                  - paragraph [ref=e2722]
+            - generic:
+              - list
+            - generic:
+              - list
+          - paragraph [ref=e2725]: 溫馨提示：以上數據僅供參考，車型參配以實車為準
+  - generic [ref=e2727]:
+    - generic [ref=e2728]:
+      - generic [ref=e2732]:
+        - generic [ref=e2734]: 新車
+        - generic [ref=e2735]:
+          - link "車款大全" [ref=e2737] [cursor=pointer]:
+            - /url: https://c.8891.com.tw/Models
+          - link "汽車文章" [ref=e2739] [cursor=pointer]:
+            - /url: https://c.8891.com.tw/news?t=6
+          - link "汽車影音" [ref=e2741] [cursor=pointer]:
+            - /url: https://c.8891.com.tw/photoMovie-index.html
+        - generic [ref=e2742]:
+          - link "車型比較" [ref=e2744] [cursor=pointer]:
+            - /url: https://c.8891.com.tw/photoModel-compare.html
+          - link "文章標籤" [ref=e2746] [cursor=pointer]:
+            - /url: https://c.8891.com.tw/article/tag
+      - generic [ref=e2748]:
+        - generic [ref=e2750]: 中古車
+        - generic [ref=e2751]:
+          - link "賣中古車" [ref=e2753] [cursor=pointer]:
+            - /url: https://www.8891.com.tw/help-sell.html
+          - link "買中古車" [ref=e2755] [cursor=pointer]:
+            - /url: https://auto.8891.com.tw/
+          - link "嚴選中古車" [ref=e2757] [cursor=pointer]:
+            - /url: https://auto.8891.com.tw/?selection=1&page=1
+        - generic [ref=e2758]:
+          - link "聯盟中古車" [ref=e2760] [cursor=pointer]:
+            - /url: https://auto.8891.com.tw?org_top=2
+          - link "中古車商" [ref=e2762] [cursor=pointer]:
+            - /url: https://www.8891.com.tw/findBuz-index.html
+          - link "中古車專題" [ref=e2764] [cursor=pointer]:
+            - /url: https://auto.8891.com.tw/topic
+        - link "收費標準" [ref=e2767] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-s_1.html
+      - generic [ref=e2768]:
+        - generic [ref=e2769]: 聯絡我們
+        - generic [ref=e2770]: 電話：02-5572-2088（週一至週日09:00-18:00）
+        - generic [ref=e2771]: 傳真：02-5579-3400
+        - generic [ref=e2772]: 信箱：Service@8891.com.tw
+        - generic [ref=e2774] [cursor=pointer]: 聯絡客服
+    - list [ref=e2775]:
+      - listitem [ref=e2776]:
+        - link "投資者專區" [ref=e2777] [cursor=pointer]:
+          - /url: https://www.addcn.com/investment-basic.html
+      - listitem [ref=e2778]:
+        - link "關於我們" [ref=e2779] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-us.html
+      - listitem [ref=e2780]:
+        - link "社會公益" [ref=e2781] [cursor=pointer]:
+          - /url: https://www.addcn.com/social-welfare2012.html
+      - listitem [ref=e2782]:
+        - link "廣告合作" [ref=e2783] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/ads/apply
+          - img [ref=e2784]
+          - text: 廣告合作
+      - listitem [ref=e2785]:
+        - link "新聞剪輯" [ref=e2786] [cursor=pointer]:
+          - /url: https://www.addcn.com.tw/media-report.html?id=4
+      - listitem [ref=e2787]:
+        - link "免責聲明" [ref=e2788] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-laimer.html
+      - listitem [ref=e2789]:
+        - link "服務條款" [ref=e2790] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-sev.html
+      - listitem [ref=e2791]:
+        - link "隱私權聲明" [ref=e2792] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-pris.html
+      - listitem [ref=e2793]:
+        - link "免費交換連結" [ref=e2794] [cursor=pointer]:
+          - /url: https://www.8891.com.tw/help-links.html
+      - listitem [ref=e2795]:
+        - link "數字徵才" [ref=e2796] [cursor=pointer]:
+          - /url: https://www.addcn.com/app/job-listings?utm_source=8891&utm_medium=link&utm_campaign=hire
+    - list [ref=e2797]:
+      - listitem [ref=e2798]:
+        - link "台灣8591寶物交易網" [ref=e2799] [cursor=pointer]:
+          - /url: https://www.8591.com.tw/
+      - listitem [ref=e2800]:
+        - link "香港8591寶物交易網" [ref=e2801] [cursor=pointer]:
+          - /url: https://www.8591.com.hk/
+      - listitem [ref=e2802]:
+        - link "591租屋" [ref=e2803] [cursor=pointer]:
+          - /url: https://rent.591.com.tw/
+      - listitem [ref=e2804]:
+        - link "591售屋" [ref=e2805] [cursor=pointer]:
+          - /url: https://sale.591.com.tw/
+      - listitem [ref=e2806]:
+        - link "591店面" [ref=e2807] [cursor=pointer]:
+          - /url: https://store.591.com.tw/house-rentSale.html?storeType=1
+      - listitem [ref=e2808]:
+        - link "591新建案" [ref=e2809] [cursor=pointer]:
+          - /url: https://newhouse.591.com.tw/
+    - list [ref=e2810]:
+      - listitem [ref=e2811]:
+        - link "591實價登錄" [ref=e2812] [cursor=pointer]:
+          - /url: https://market.591.com.tw/
+      - listitem [ref=e2813]:
+        - link "591新聞" [ref=e2814] [cursor=pointer]:
+          - /url: https://news.591.com.tw/
+      - listitem [ref=e2815]:
+        - link "100室內設計" [ref=e2816] [cursor=pointer]:
+          - /url: https://100.com.tw/
+      - listitem [ref=e2817]:
+        - link "8891中古車網" [ref=e2818] [cursor=pointer]:
+          - /url: https://auto.8891.com.tw/
+      - listitem [ref=e2819]:
+        - link "8891新車" [ref=e2820] [cursor=pointer]:
+          - /url: https://c.8891.com.tw/
+      - listitem [ref=e2821]:
+        - link "518 熊班" [ref=e2822] [cursor=pointer]:
+          - /url: https://www.518.com.tw/
+      - listitem [ref=e2823]:
+        - link "出任務" [ref=e2824] [cursor=pointer]:
+          - /url: https://www.tasker.com.tw/
+      - listitem [ref=e2825]:
+        - link "小雞上工" [ref=e2826] [cursor=pointer]:
+          - /url: https://www.518.com.tw/active-ChickPTapp.html
+      - listitem [ref=e2827]:
+        - link "518找好公司" [ref=e2828] [cursor=pointer]:
+          - /url: https://ask.518.com.tw/
+      - listitem [ref=e2829]:
+        - link "找師傅" [ref=e2830] [cursor=pointer]:
+          - /url: https://www.945.com.tw/
+    - generic [ref=e2831]: Copyright © 2009-2026 by Addcn Technology Co., Ltd. All Rights reserved.
+    - generic [ref=e2832]:
+      - link [ref=e2834] [cursor=pointer]:
+        - /url: https://www.addcn.com/media-details-257.html?site=0
+      - generic [ref=e2835] [cursor=pointer]:
+        - img "ESG" [ref=e2836]
+        - iframe [ref=e2837]:
+          - generic [active]:
+            - generic:
+              - table:
+                - rowgroup:
+                  - row:
+                    - cell:
+                      - generic:
+                        - generic:
+                          - img [ref=f1e1]
+                          - img [ref=f1e2]
+                          - img [ref=f1e3]
+                          - img [ref=f1e4]
+                          - img [ref=f1e5]

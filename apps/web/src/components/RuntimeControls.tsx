@@ -262,40 +262,51 @@ export function RuntimeControls(props: RuntimeControlsProps) {
                   No skills discovered for this agent.
                 </div>
               ) : (
-                groupedSkills.map((group) => (
-                  <section key={group.scope} className="skill-group">
-                    <div className="skill-group-header">
-                      <div>
-                        <strong>{group.label}</strong>
-                        <div className="scope-caption">{group.scope}</div>
+                <>
+                  {props.config.provider === "lmstudio" ? (
+                    <div className="field-note">
+                      Enabled skills are injected into the LM Studio prompt as
+                      instruction context. MCP tool execution still requires the
+                      GitHub Copilot runtime.
+                    </div>
+                  ) : null}
+                  {groupedSkills.map((group) => (
+                    <section key={group.scope} className="skill-group">
+                      <div className="skill-group-header">
+                        <div>
+                          <strong>{group.label}</strong>
+                          <div className="scope-caption">{group.scope}</div>
+                        </div>
+                        <span className="scope-chip">
+                          {group.skills.length}
+                        </span>
                       </div>
-                      <span className="scope-chip">{group.skills.length}</span>
-                    </div>
-                    <div className="skill-list">
-                      {group.skills.map((skill) => {
-                        const enabled = !props.config.disabledSkills.includes(
-                          skill.name
-                        );
-                        return (
-                          <label
-                            key={`${skill.scope}:${skill.name}`}
-                            className="checkbox-row"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={enabled}
-                              onChange={() => props.onSkillToggle(skill.name)}
-                            />
-                            <div>
-                              <strong>{skill.name}</strong>
-                              <span>{skill.description}</span>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))
+                      <div className="skill-list">
+                        {group.skills.map((skill) => {
+                          const enabled = !props.config.disabledSkills.includes(
+                            skill.name
+                          );
+                          return (
+                            <label
+                              key={`${skill.scope}:${skill.name}`}
+                              className="checkbox-row"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                onChange={() => props.onSkillToggle(skill.name)}
+                              />
+                              <div>
+                                <strong>{skill.name}</strong>
+                                <span>{skill.description}</span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </>
               )}
             </div>
           </div>

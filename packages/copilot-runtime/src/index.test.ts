@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRuntimeService } from "./index";
 
-const { getAgentByIdMock } = vi.hoisted(() => ({
-  getAgentByIdMock: vi.fn(),
-}));
+const { getAgentByIdMock, loadEnabledSkillDocumentsForAgentMock } = vi.hoisted(
+  () => ({
+    getAgentByIdMock: vi.fn(),
+    loadEnabledSkillDocumentsForAgentMock: vi.fn(),
+  })
+);
 const createSessionMock = vi.fn();
 const resumeSessionMock = vi.fn();
 const listSessionsMock = vi.fn();
@@ -27,6 +30,7 @@ vi.mock("@min-kb-app/min-kb-store", () => ({
   getAgentById: getAgentByIdMock,
   listAgents: vi.fn(async () => []),
   listSkillsForAgent: vi.fn(async () => []),
+  loadEnabledSkillDocumentsForAgent: loadEnabledSkillDocumentsForAgentMock,
   pathExists: vi.fn(async () => false),
 }));
 
@@ -79,6 +83,7 @@ describe("ChatRuntimeService", () => {
     startMock.mockResolvedValue(undefined);
     stopMock.mockResolvedValue(undefined);
     getAgentByIdMock.mockResolvedValue(undefined);
+    loadEnabledSkillDocumentsForAgentMock.mockResolvedValue([]);
     listSessionsMock.mockResolvedValue([]);
     listModelsMock.mockResolvedValue([
       {
@@ -420,7 +425,7 @@ describe("ChatRuntimeService", () => {
     );
   });
 
-  it("routes LM Studio requests to the OpenAI-compatible endpoints and sends prior turns as chat history", async () => {
+  it("routes LM Studio requests to the OpenAI-compatible endpoints with agent instructions and enabled skills", async () => {
     const fetchMock = vi.fn();
     fetchMock.mockResolvedValueOnce(
       new Response(
@@ -457,6 +462,30 @@ describe("ChatRuntimeService", () => {
       )
     );
     vi.stubGlobal("fetch", fetchMock);
+    getAgentByIdMock.mockResolvedValue({
+      id: "chat-agent",
+      kind: "chat",
+      title: "Chat agent",
+      description: "Handles local chat tasks.",
+      combinedPrompt: "Follow the local support workflow carefully.",
+      agentPath: "/tmp/agents/chat-agent/AGENT.md",
+      defaultSoulPath: "/tmp/agents/default/SOUL.md",
+      historyRoot: "/tmp/agents/chat-agent/history",
+      workingMemoryRoot: "/tmp/agents/chat-agent/memory/working",
+      skillRoot: "/tmp/agents/chat-agent/skills",
+      skillNames: ["memory-capture", "repo-search"],
+      sessionCount: 0,
+    });
+    loadEnabledSkillDocumentsForAgentMock.mockResolvedValue([
+      {
+        name: "repo-search",
+        description: "Search the repo",
+        scope: "agent-local",
+        path: "/tmp/agents/chat-agent/skills/repo-search/SKILL.md",
+        sourceRoot: "/tmp/agents/chat-agent/skills",
+        content: "Search the repository before answering code questions.",
+      },
+    ]);
 
     const runtime = new ChatRuntimeService(
       {
@@ -501,7 +530,10 @@ describe("ChatRuntimeService", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "http://127.0.0.1:1234/v1/models"
+      "http://127.0.0.1:1234/v1/models",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -509,9 +541,20 @@ describe("ChatRuntimeService", () => {
       expect.objectContaining({
         method: "POST",
         headers: { "content-type": "application/json" },
+        signal: expect.any(AbortSignal),
         body: JSON.stringify({
           model: "qwen2.5-7b-instruct",
           messages: [
+            {
+              role: "system",
+              content: [
+                "You are running through LM Studio inside min-kb-app.",
+                "Do not claim to have used MCP servers, tools, or external resources unless their results already appear in the conversation.",
+                "Skills selected for this run are provided below as live operating instructions. Apply them when they are relevant instead of describing them as unavailable metadata. If a skill calls for tools, commands, MCP servers, or external systems, only rely on results already present in the conversation and clearly state when something still needs to be run outside this LM Studio response.",
+                "## Agent instructions\n\nFollow the local support workflow carefully.",
+                "## Enabled skills\n\n### repo-search\n- Scope: agent-local\n- Description: Search the repo\n\nSearch the repository before answering code questions.",
+              ].join("\n\n"),
+            },
             { role: "user", content: "What broke in production?" },
             {
               role: "assistant",
@@ -523,6 +566,11 @@ describe("ChatRuntimeService", () => {
         }),
       })
     );
+    expect(loadEnabledSkillDocumentsForAgentMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "chat-agent",
+      ["memory-capture"]
+    );
     expect(result.assistantText).toBe("Here is the local model response.");
     expect(result.llmStats).toEqual(
       expect.objectContaining({
@@ -533,7 +581,274 @@ describe("ChatRuntimeService", () => {
         cost: 0,
       })
     );
-    expect(result.sessionDiagnostics).toBeUndefined();
+    expect(result.sessionDiagnostics).toEqual({
+      loadedSkills: [{ name: "repo-search", enabled: true }],
+      invokedSkills: [],
+      toolExecutions: [],
+      reportedLoadedSkills: true,
+    });
+  });
+
+  it("strips qwen-style thinking tags from LM Studio string responses", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "qwen3.5-32b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "qwen3.5-32b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content:
+                  "<think>\nNeed to reason step by step.\n</think>\n\nHere is the visible answer.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "qwen-thinking-session",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "qwen3.5-32b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe("Here is the visible answer.");
+  });
+
+  it("drops thinking content parts from LM Studio array responses", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "qwen3.5-32b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "qwen3.5-32b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content: [
+                  {
+                    type: "thinking",
+                    thinking: "Need to reason step by step.",
+                  },
+                  {
+                    type: "text",
+                    text: "Here is the visible answer.",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "qwen-thinking-parts-session",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "qwen3.5-32b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe("Here is the visible answer.");
+  });
+
+  it("strips repeated leading thinking blocks from LM Studio responses", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "qwen3.5-32b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "qwen3.5-32b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content:
+                  "<think>First hidden block.</think>\n<reasoning>Second hidden block.</reasoning>\nVisible answer.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "qwen-multiple-thinking-blocks",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "qwen3.5-32b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe("Visible answer.");
+  });
+
+  it("surfaces a clear timeout error when LM Studio is too slow to reply", async () => {
+    vi.useFakeTimers();
+    process.env.MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS = "5";
+    const fetchMock = vi.fn((_input: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        });
+      });
+    });
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "qwen2.5-7b-instruct" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const sendPromise = runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "slow-local-session",
+      prompt: "Take your time.",
+      config: {
+        provider: "lmstudio",
+        model: "qwen2.5-7b-instruct",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+    const rejection = expect(sendPromise).rejects.toThrow(
+      "LM Studio chat request timed out after 5ms."
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    await rejection;
+
+    delete process.env.MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS;
+    vi.useRealTimers();
   });
 
   it("falls back to accumulated assistant deltas when the final assistant message is missing", async () => {

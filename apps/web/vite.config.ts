@@ -10,13 +10,16 @@ const base =
 const apiBaseUrl = process.env.VITE_API_BASE_URL;
 const apiUrl = apiBaseUrl ? new URL(apiBaseUrl) : undefined;
 const apiPathPrefix = `${trimTrailingSlash(apiUrl?.pathname ?? "")}/api/`;
+const apiRuntimeCachePattern = apiUrl
+  ? new RegExp(`^${escapeRegExp(apiUrl.origin)}${escapeRegExp(apiPathPrefix)}`)
+  : /\/api\//;
 
 export default defineConfig({
   base,
   plugins: [
     react(),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["favicon.svg"],
       manifest: {
         name: "min-kb-app",
@@ -40,11 +43,7 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) =>
-              apiUrl
-                ? url.origin === apiUrl.origin &&
-                  url.pathname.startsWith(apiPathPrefix)
-                : url.pathname.startsWith("/api/"),
+            urlPattern: apiRuntimeCachePattern,
             handler: "NetworkFirst",
             options: {
               cacheName: "api-cache",
@@ -69,4 +68,8 @@ export default defineConfig({
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

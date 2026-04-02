@@ -9,7 +9,6 @@ export function getHttpErrorStatus(error: unknown): HttpErrorStatus {
   if (isMissingResourceError(message)) {
     return 404;
   }
-
   return 500;
 }
 

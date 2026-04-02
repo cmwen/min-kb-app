@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getAgentById, listSkillsForAgent, resolveWorkspace } from "./index.js";
+import {
+  getAgentById,
+  listSkillsForAgent,
+  loadEnabledSkillDocumentsForAgent,
+  resolveWorkspace,
+} from "./index.js";
 
 const roots: string[] = [];
 
@@ -76,7 +81,7 @@ describe("agent loading", () => {
 
     expect(agent?.runtimeConfig).toEqual({
       provider: "copilot",
-      model: "gpt-5",
+      model: "gpt-5-mini",
       reasoningEffort: "high",
       disabledSkills: [],
       mcpServers: {
@@ -89,6 +94,60 @@ describe("agent loading", () => {
         },
       },
     });
+  });
+
+  it("loads enabled skill documents with resolved precedence and strips frontmatter", async () => {
+    const root = await createStoreFixture();
+    const copilotConfigDir = path.join(root, ".copilot-home");
+    await mkdir(path.join(copilotConfigDir, "skills/shared-skill"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(copilotConfigDir, "skills/shared-skill/SKILL.md"),
+      "---\nname: shared-skill\ndescription: Copilot global version\n---\nGlobal skill\n",
+      "utf8"
+    );
+    await mkdir(path.join(root, "agents/coding-agent/skills/shared-skill"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(root, "agents/coding-agent/skills/shared-skill/SKILL.md"),
+      "---\nname: shared-skill\ndescription: Agent-local version\n---\n## Agent skill\n\nUse the local instructions.\n",
+      "utf8"
+    );
+    await mkdir(path.join(root, "agents/coding-agent/skills/disabled-skill"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(root, "agents/coding-agent/skills/disabled-skill/SKILL.md"),
+      "---\nname: disabled-skill\ndescription: Should be skipped\n---\nDo not include me.\n",
+      "utf8"
+    );
+
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir,
+    });
+
+    const loadedSkills = await loadEnabledSkillDocumentsForAgent(
+      workspace,
+      "coding-agent",
+      ["disabled-skill"]
+    );
+
+    expect(loadedSkills).toEqual([
+      {
+        name: "shared-skill",
+        description: "Agent-local version",
+        scope: "agent-local",
+        path: path.join(
+          root,
+          "agents/coding-agent/skills/shared-skill/SKILL.md"
+        ),
+        sourceRoot: path.join(root, "agents/coding-agent/skills"),
+        content: "## Agent skill\n\nUse the local instructions.",
+      },
+    ]);
   });
 });
 

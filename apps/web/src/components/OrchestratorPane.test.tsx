@@ -77,6 +77,7 @@ describe("OrchestratorPane", () => {
       projectPath: "/tmp/project",
       projectPurpose: "Repair the login redirect",
       model: "claude-sonnet-4.6",
+      executionMode: "standard",
       prompt: "Investigate the broken redirect flow.",
     });
   });
@@ -120,6 +121,7 @@ describe("OrchestratorPane", () => {
           lastJobId: undefined,
           availableCustomAgents: [],
           selectedCustomAgentId: undefined,
+          executionMode: "standard",
           sessionDirectory: "/tmp/session",
           manifestPath:
             "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
@@ -173,6 +175,7 @@ describe("OrchestratorPane", () => {
       title: "Payments platform",
       model: "claude-sonnet-4.6",
       selectedCustomAgentId: null,
+      executionMode: "standard",
     });
   });
 
@@ -222,6 +225,7 @@ describe("OrchestratorPane", () => {
             },
           ],
           selectedCustomAgentId: undefined,
+          executionMode: "standard",
           sessionDirectory: "/tmp/session",
           manifestPath:
             "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
@@ -264,6 +268,93 @@ describe("OrchestratorPane", () => {
       title: "Repo support",
       model: "gpt-5",
       selectedCustomAgentId: "reviewer",
+      executionMode: "standard",
+    });
+  });
+
+  it("lets users switch a session to fleet mode", async () => {
+    const user = userEvent.setup();
+    const onUpdateSession = vi.fn();
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: ["/tmp/another-project"],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "idle",
+          activeJobId: undefined,
+          lastJobId: undefined,
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          executionMode: "standard",
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={onUpdateSession}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /session settings/i }));
+    const selects = screen.getAllByRole("combobox");
+    await user.selectOptions(selects[2] ?? document.body, "fleet");
+    await user.click(screen.getByRole("button", { name: "Save details" }));
+
+    expect(onUpdateSession).toHaveBeenCalledWith({
+      title: "Repo support",
+      model: "gpt-5",
+      selectedCustomAgentId: null,
+      executionMode: "fleet",
     });
   });
 

@@ -12,6 +12,7 @@ import {
   deleteOrchestratorSchedule,
   deleteOrchestratorSession,
   discoverCopilotCustomAgents,
+  getDefaultOrchestratorCustomAgentId,
   getOrchestratorSchedule,
   getOrchestratorSession,
   getOrchestratorTerminalSize,
@@ -19,6 +20,7 @@ import {
   listOrchestratorSessions,
   type MinKbWorkspace,
   ORCHESTRATOR_AGENT_ID,
+  ORCHESTRATOR_TERMINAL_LINE_LIMIT,
   orchestratorHistoryRoot,
   pathExists,
   readOrchestratorTerminalChunk,
@@ -39,6 +41,7 @@ import {
   DEFAULT_CHAT_PROVIDER,
   type ModelDescriptor,
   type OrchestratorCapabilities,
+  type OrchestratorExecutionMode,
   type OrchestratorDelegateRequest,
   type OrchestratorJob,
   type OrchestratorSchedule,
@@ -47,6 +50,7 @@ import {
   type OrchestratorSession,
   type OrchestratorSessionCreateRequest,
   type OrchestratorSessionUpdateRequest,
+  type OrchestratorTerminalHistoryChunk,
   orchestratorCapabilitiesSchema,
 } from "@min-kb-app/shared";
 
@@ -110,9 +114,9 @@ export class TmuxOrchestratorService {
       kind: "orchestrator",
       title: "Copilot Orchestrator",
       description:
-        "Delegates async jobs to GitHub Copilot CLI running inside tmux windows.",
+        "Maximizes project context, then delegates implementation work to Copilot custom agents inside tmux windows.",
       combinedPrompt:
-        "You are the built-in Copilot orchestrator agent. Queue work to tmux-managed Copilot CLI windows and keep track of project context, terminal output, and session status.",
+        "You are the built-in Copilot orchestrator agent. Maximize the available project context, keep delegated session state current, and route implementation work through specialized Copilot custom agents instead of doing everything in one generic run.",
       agentPath: path.join(this.workspace.agentsRoot, ORCHESTRATOR_AGENT_ID),
       defaultSoulPath: path.join(
         this.workspace.agentsRoot,
@@ -163,10 +167,13 @@ export class TmuxOrchestratorService {
     await this.assertProjectPath(projectPath);
     const availableCustomAgents =
       await discoverCopilotCustomAgents(projectPath);
+    const defaultCustomAgentId = getDefaultOrchestratorCustomAgentId(
+      availableCustomAgents
+    );
     const selectedCustomAgentId = this.resolveSelectedCustomAgentId(
       {
         availableCustomAgents,
-        selectedCustomAgentId: undefined,
+        selectedCustomAgentId: defaultCustomAgentId,
       },
       request.selectedCustomAgentId
     );
@@ -198,6 +205,7 @@ export class TmuxOrchestratorService {
       model,
       availableCustomAgents,
       selectedCustomAgentId,
+      executionMode: request.executionMode,
       tmuxSessionName: this.tmuxSessionName,
       tmuxWindowName,
       tmuxPaneId: paneId,
@@ -220,6 +228,7 @@ export class TmuxOrchestratorService {
       session,
       request.selectedCustomAgentId
     );
+    const executionMode = request.executionMode;
     const tmuxWindowName = buildOrchestratorWindowName(
       title,
       session.projectPath,
@@ -229,6 +238,7 @@ export class TmuxOrchestratorService {
       title !== session.title ||
       model !== session.model ||
       selectedCustomAgentId !== session.selectedCustomAgentId ||
+      executionMode !== session.executionMode ||
       tmuxWindowName !== session.tmuxWindowName;
     if (!hasChanges) {
       return session;
@@ -250,6 +260,7 @@ export class TmuxOrchestratorService {
       title,
       model,
       selectedCustomAgentId,
+      executionMode,
       tmuxWindowName,
     });
     return this.getSession(sessionId);
@@ -530,14 +541,8 @@ export class TmuxOrchestratorService {
   async readTerminalHistoryChunk(
     sessionId: string,
     beforeOffset: number,
-    maxLines = 2_000
-  ): Promise<{
-    chunk: string;
-    startOffset: number;
-    endOffset: number;
-    hasMoreBefore: boolean;
-    lineCount: number;
-  }> {
+    maxLines = ORCHESTRATOR_TERMINAL_LINE_LIMIT
+  ): Promise<OrchestratorTerminalHistoryChunk> {
     return readOrchestratorTerminalHistoryChunk(
       this.workspace,
       sessionId,
@@ -845,6 +850,7 @@ export class TmuxOrchestratorService {
       promptMode: job.promptMode,
       projectPurpose: session.projectPurpose,
       customAgentId: job.customAgentId,
+      executionMode: session.executionMode,
       tmuxTarget: session.tmuxPaneId,
     });
     await fs.writeFile(scriptPath, script, "utf8");
@@ -1022,6 +1028,7 @@ export function buildDelegationShellScript(input: {
   promptPath?: string;
   projectPurpose: string;
   customAgentId?: string;
+  executionMode: OrchestratorExecutionMode;
   tmuxTarget: string;
 }): string {
   const command = buildCopilotCommand({
@@ -1078,10 +1085,14 @@ export function buildCopilotCommand(input: {
   promptPath?: string;
   projectPurpose: string;
   customAgentId?: string;
+  executionMode: OrchestratorExecutionMode;
 }): string {
   const agentFlag = input.customAgentId
     ? ` --agent ${shellQuote(input.customAgentId)}`
     : "";
+  const promptFlag = input.executionMode === "fleet" ? "-i" : "-p";
+  const normalizePrompt = (value: string) =>
+    input.executionMode === "fleet" ? `/fleet ${value}` : value;
   if (input.promptMode === "file") {
     if (!input.promptPath) {
       throw new Error("Prompt file mode requires a promptPath.");
@@ -1091,12 +1102,12 @@ export function buildCopilotCommand(input: {
       `Task file: ${input.promptPath}`,
       `Project purpose: ${input.projectPurpose}`,
     ].join("\n");
-    return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo -p ${shellQuote(
-      delegatedPrompt
+    return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo ${promptFlag} ${shellQuote(
+      normalizePrompt(delegatedPrompt)
     )}`;
   }
-  return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo -p ${shellQuote(
-    input.prompt
+  return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo ${promptFlag} ${shellQuote(
+    normalizePrompt(input.prompt)
   )}`;
 }
 
@@ -1169,14 +1180,19 @@ export function buildMemoryAnalysisPrompt(
     .join("\n\n");
   const skillSection =
     memorySkillNames.length > 0
-      ? `Available memory-related skills:\n${memorySkillNames.map((name) => `- ${name}`).join("\n")}\n`
-      : "No memory-specific skills were detected, so do not attempt memory writes. Instead, explain what should be stored and why.\n";
+      ? [
+          "Memory-related skills are available for this run:",
+          ...memorySkillNames.map((name) => `- ${name}`),
+          "You may use them, but the structured sections below are still required.",
+        ].join("\n")
+      : "Memory-related skills may be unavailable for this run. Structured sections are still required because the runtime can persist the memory you identify.\n";
   return [
     "Review the following chat history and identify only the information worth remembering.",
     "Prefer durable facts, stable preferences, ongoing project context, active decisions, and any near-term context that should stay available.",
     "Use working memory for immediate context, short-term memory for near-future reusable context, and long-term memory for durable facts or preferences.",
-    "If memory-related skills are available, invoke them during this analysis run to write or update the right items in the right memory tier instead of only recommending them.",
-    "Reply in markdown with three sections: Working memory, Short-term memory, and Long-term memory. For each section, list what you stored or updated, note any remaining recommendations, and explain why.",
+    "Always reply in markdown with exactly three sections named Working memory, Short-term memory, and Long-term memory.",
+    "For each section, write a short summary sentence and then a '-' bullet list of memory items. If a section has nothing worth keeping, write 'None.'",
+    "If you are unsure which tier applies, place the item in Working memory instead of omitting it.",
     "",
     skillSection.trim(),
     "",
@@ -1199,31 +1215,38 @@ export function parseMemoryAnalysisMarkdown(markdown: string): {
     shortTerm: { summary: "", items: [] as string[] },
     longTerm: { summary: "", items: [] as string[] },
   };
-  const headingPattern = /^#{1,6}\s+(.+?)\s*$/gm;
-  const matches = [...markdown.matchAll(headingPattern)];
+  const contentBySection = {
+    working: [] as string[],
+    shortTerm: [] as string[],
+    longTerm: [] as string[],
+  };
+  let currentSection: keyof typeof sections | undefined;
 
-  for (let index = 0; index < matches.length; index += 1) {
-    const match = matches[index];
-    if (!match) {
-      continue;
-    }
-    const headingText = match[1];
-    if (!headingText) {
-      continue;
-    }
-    const heading = normalizeMemoryHeading(headingText);
-    if (!heading) {
+  for (const rawLine of markdown.split("\n")) {
+    const heading = parseMemoryHeadingLine(rawLine);
+    if (heading) {
+      currentSection = heading.section;
+      if (heading.remainder) {
+        contentBySection[currentSection].push(heading.remainder);
+      }
       continue;
     }
 
-    const contentStart = (match.index ?? 0) + match[0].length;
-    const nextMatch = matches[index + 1];
-    const contentEnd =
-      index + 1 < matches.length
-        ? (nextMatch?.index ?? markdown.length)
-        : markdown.length;
-    const content = markdown.slice(contentStart, contentEnd).trim();
-    sections[heading] = summarizeMemorySection(content);
+    if (currentSection) {
+      contentBySection[currentSection].push(rawLine);
+    }
+  }
+
+  for (const section of Object.keys(contentBySection) as Array<
+    keyof typeof contentBySection
+  >) {
+    sections[section] = summarizeMemorySection(
+      contentBySection[section].join("\n").trim()
+    );
+  }
+
+  if (!hasParsedMemoryContent(sections) && markdown.trim()) {
+    sections.working = summarizeMemorySection(markdown);
   }
 
   return sections;
@@ -1232,17 +1255,28 @@ export function parseMemoryAnalysisMarkdown(markdown: string): {
 function normalizeMemoryHeading(
   heading: string
 ): "working" | "shortTerm" | "longTerm" | undefined {
-  const normalized = heading.trim().toLowerCase();
-  if (normalized === "working memory") {
+  const normalized = heading
+    .trim()
+    .toLowerCase()
+    .replace(/[*_`]/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[.:]+$/g, "")
+    .replace(/\s+/g, " ");
+  if (/^working(?: memory)?(?: items| notes| updates)?$/.test(normalized)) {
     return "working";
   }
   if (
-    normalized === "short-term memory" ||
-    normalized === "short term memory"
+    /^(?:short|near)(?:[- ]term)?(?: memory)?(?: items| notes| updates)?$/.test(
+      normalized
+    )
   ) {
     return "shortTerm";
   }
-  if (normalized === "long-term memory" || normalized === "long term memory") {
+  if (
+    /^(?:long|durable)(?:[- ]term)?(?: memory)?(?: items| notes| updates)?$/.test(
+      normalized
+    )
+  ) {
     return "longTerm";
   }
   return undefined;
@@ -1263,11 +1297,14 @@ function summarizeMemorySection(content: string): {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+  const itemPattern = /^(?:[-*+•●◆◦▪‣]|\d+[.)])\s+/u;
   const items = lines
-    .filter((line) => /^[-*+]\s+/.test(line))
-    .map((line) => line.replace(/^[-*+]\s+/, "").trim());
+    .filter((line) => itemPattern.test(line))
+    .map((line) => line.replace(itemPattern, "").trim())
+    .filter(Boolean);
   const summary = lines
-    .filter((line) => !/^[-*+]\s+/.test(line))
+    .filter((line) => !itemPattern.test(line))
+    .filter((line) => line.toLowerCase() !== "none.")
     .join(" ")
     .trim();
 
@@ -1275,6 +1312,58 @@ function summarizeMemorySection(content: string): {
     summary,
     items,
   };
+}
+
+function parseMemoryHeadingLine(line: string):
+  | {
+      section: "working" | "shortTerm" | "longTerm";
+      remainder: string;
+    }
+  | undefined {
+  const normalizedLine = line
+    .trim()
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^[-*+•●◆◦▪‣]\s*/u, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .trim();
+
+  for (const separator of [":", " - ", " – ", " — "]) {
+    const separatorIndex = normalizedLine.indexOf(separator);
+    if (separatorIndex < 0) {
+      continue;
+    }
+    const section = normalizeMemoryHeading(
+      normalizedLine.slice(0, separatorIndex)
+    );
+    if (section) {
+      return {
+        section,
+        remainder: normalizedLine
+          .slice(separatorIndex + separator.length)
+          .trim(),
+      };
+    }
+  }
+
+  const section = normalizeMemoryHeading(normalizedLine);
+  if (!section) {
+    return undefined;
+  }
+
+  return {
+    section,
+    remainder: "",
+  };
+}
+
+function hasParsedMemoryContent(sections: {
+  working: { summary: string; items: string[] };
+  shortTerm: { summary: string; items: string[] };
+  longTerm: { summary: string; items: string[] };
+}): boolean {
+  return Object.values(sections).some(
+    (section) => section.summary.length > 0 || section.items.length > 0
+  );
 }
 
 export function shellQuote(value: string): string {

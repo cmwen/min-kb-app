@@ -67,6 +67,8 @@ Returns a provider-aware `ModelCatalog`:
 
 The runtime merges live Copilot SDK model discovery with a bundled fallback catalog. LM Studio models come from the configured OpenAI-compatible `/models` endpoint, with the environment fallback model id used when discovery is unavailable.
 
+LM Studio requests now also inherit the selected agent prompt and any enabled skill documents as injected system context. That gives local models access to agent instructions and prompt-backed skills, but MCP server execution still remains Copilot-only.
+
 ## Agents, sessions, and memory
 
 ### `GET /api/agents`

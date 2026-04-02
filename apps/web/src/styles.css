@@ -226,6 +226,11 @@ p {
   height: 18px;
 }
 
+.agent-pill svg {
+  width: 18px;
+  height: 18px;
+}
+
 .agent-pill.selected,
 .session-card.selected,
 .primary-button {
@@ -249,6 +254,17 @@ p {
     var(--orchestrator-from),
     var(--orchestrator-to)
   );
+  color: var(--text-on-accent);
+}
+
+.agent-pill.agent-pill-schedule {
+  background: color-mix(in srgb, var(--primary-from) 10%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--primary-from) 40%, var(--border-soft));
+  color: color-mix(in srgb, var(--primary-from) 55%, var(--text-primary));
+}
+
+.agent-pill.agent-pill-schedule.selected {
+  background: linear-gradient(135deg, var(--primary-from), var(--primary-to));
   color: var(--text-on-accent);
 }
 
@@ -543,6 +559,14 @@ p {
   justify-content: center;
   color: var(--text-subtle);
   text-align: center;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 .session-card {
@@ -935,6 +959,7 @@ p {
 }
 
 .orchestrator-pane,
+.schedule-pane,
 .orchestrator-meta-grid,
 .orchestrator-action-grid,
 .orchestrator-control-grid,
@@ -946,6 +971,44 @@ p {
 
 .orchestrator-console {
   gap: 1.1rem;
+}
+
+.schedule-overview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.detail-list div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.detail-list dt {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.detail-list dd {
+  margin: 0;
+  color: var(--text-subtle);
+}
+
+.inline-error-banner {
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger-text) 35%, transparent);
+  background: color-mix(in srgb, var(--danger-text) 12%, transparent);
+  color: var(--danger-text);
 }
 
 .orchestrator-session-strip {

@@ -13,15 +13,13 @@ import {
   listSessions,
   listSkillsForAgent,
   ORCHESTRATOR_AGENT_ID,
-  recordSessionLlmUsage,
   resolveWorkspace,
-  saveChatTurn,
-  sessionIdFromTitle,
+  SCHEDULE_AGENT_ID,
   summarizeWorkspace,
+  writeMemoryAnalysisFallbackEntries,
 } from "@min-kb-app/min-kb-store";
 import type {
   ChatRequest,
-  ChatResponse,
   MemoryAnalysisEntryChange,
   MemoryAnalysisRequest,
   MemoryEntry,
@@ -32,23 +30,27 @@ import type {
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
+  OrchestratorTerminalHistoryChunk,
   OrchestratorTerminalInputRequest,
+  ScheduleTaskCreateRequest,
+  ScheduleTaskUpdateRequest,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
 import {
   chatRequestSchema,
-  createDefaultChatRuntimeConfig,
   memoryAnalysisRequestSchema,
-  mergeChatRuntimeConfigs,
   orchestratorDelegateRequestSchema,
   orchestratorScheduleCreateSchema,
   orchestratorScheduleUpdateSchema,
   orchestratorSessionCreateSchema,
   orchestratorSessionUpdateSchema,
+  orchestratorTerminalHistoryChunkSchema,
   orchestratorTerminalInputSchema,
+  scheduleTaskCreateSchema,
+  scheduleTaskUpdateSchema,
 } from "@min-kb-app/shared";
 import { type Context, Hono } from "hono";
-import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
+import { runChatFlow } from "./chat-flow.js";
 import {
   buildMemoryAnalysisPrompt,
   buildMemoryAnalysisRuntimeConfig,
@@ -57,6 +59,8 @@ import {
   resolveMemoryAnalysisModel,
   TmuxOrchestratorService,
 } from "./orchestrator.js";
+import { ChatScheduleService } from "./schedule.js";
+import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import { computeNextRunAt, OrchestratorScheduleService } from "./scheduler.js";
 
 const workspace = await resolveWorkspace();
@@ -69,6 +73,7 @@ if (collidingAgent) {
 }
 
 const runtime = new ChatRuntimeService(workspace);
+const ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT = 2_000;
 const orchestrator = new TmuxOrchestratorService(
   workspace,
   defaultProjectPath,
@@ -82,12 +87,33 @@ const scheduleService = new OrchestratorScheduleService(
   workspace,
   orchestrator
 );
+const chatSchedules = new ChatScheduleService(workspace, {
+  resolveAgent: async (agentId) => getAgentById(workspace, agentId),
+  resolveOrchestratorSession: async (sessionId) =>
+    orchestrator.getSession(sessionId).catch(() => undefined),
+  runScheduledChat: async (input) => {
+    await runChatFlow(
+      workspace,
+      runtime,
+      input.agentId,
+      {
+        sessionId: input.sessionId,
+        title: input.title,
+        prompt: input.prompt,
+        config: input.config,
+      },
+      input.sessionId
+    );
+  },
+  runScheduledOrchestrator: async (input) => {
+    await orchestrator.delegate(input.sessionId, input.prompt);
+  },
+});
 const app = new Hono<{ Bindings: HttpBindings }>();
 const port = Number(process.env.MIN_KB_APP_PORT ?? 8787);
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const webDistRoot = path.resolve(runtimeDir, "../../web/dist");
 const webDistIndex = path.join(webDistRoot, "index.html");
-const ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT = 2_000;
 
 app.onError((error, context) => {
   const status = getHttpErrorStatus(error);
@@ -112,6 +138,7 @@ app.get("/api/models", async (context) => {
 app.get("/api/agents", async (context) => {
   return context.json([
     await orchestrator.getAgentSummary(),
+    await chatSchedules.getAgentSummary(),
     ...(await listAgents(workspace)),
   ]);
 });
@@ -120,6 +147,9 @@ app.get("/api/agents/:agentId", async (context) => {
   const agentId = context.req.param("agentId");
   if (agentId === ORCHESTRATOR_AGENT_ID) {
     return context.json(await orchestrator.getAgentSummary());
+  }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    return context.json(await chatSchedules.getAgentSummary());
   }
 
   const agent = await getAgentById(workspace, agentId);
@@ -131,7 +161,7 @@ app.get("/api/agents/:agentId", async (context) => {
 
 app.get("/api/agents/:agentId/skills", async (context) => {
   const agentId = context.req.param("agentId");
-  if (agentId === ORCHESTRATOR_AGENT_ID) {
+  if (agentId === ORCHESTRATOR_AGENT_ID || agentId === SCHEDULE_AGENT_ID) {
     return context.json([]);
   }
 
@@ -143,6 +173,9 @@ app.get("/api/agents/:agentId/sessions", async (context) => {
   if (agentId === ORCHESTRATOR_AGENT_ID) {
     return context.json(await orchestrator.listChatSummaries());
   }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    return context.json(await chatSchedules.listChatSummaries());
+  }
 
   return context.json(await listSessions(workspace, agentId));
 });
@@ -152,6 +185,9 @@ app.get("/api/agents/:agentId/sessions/:sessionId", async (context) => {
   const sessionId = context.req.param("sessionId");
   if (agentId === ORCHESTRATOR_AGENT_ID) {
     return context.json(await orchestrator.getSession(sessionId));
+  }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    return context.json(await chatSchedules.getTask(sessionId));
   }
 
   return context.json(await getSession(workspace, agentId, sessionId));
@@ -195,6 +231,10 @@ app.delete("/api/agents/:agentId/sessions/:sessionId", async (context) => {
     await orchestrator.deleteSession(sessionId);
     return context.json({ ok: true });
   }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    await chatSchedules.deleteTask(sessionId);
+    return context.json({ ok: true });
+  }
 
   await deleteChatSession(workspace, agentId, sessionId);
   return context.json({ ok: true });
@@ -232,11 +272,22 @@ app.post("/api/agents/:agentId/sessions", async (context) => {
       400
     );
   }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    return context.json(
+      {
+        error:
+          "Use the dedicated scheduled chat task endpoints for the built-in schedules agent.",
+      },
+      400
+    );
+  }
 
   const request = chatRequestSchema.parse(
     (await context.req.json()) satisfies ChatRequest
   );
-  return context.json(await runChatFlow(agentId, request, request.sessionId));
+  return context.json(
+    await runChatFlow(workspace, runtime, agentId, request, request.sessionId)
+  );
 });
 
 app.post(
@@ -252,12 +303,27 @@ app.post(
         400
       );
     }
+    if (agentId === SCHEDULE_AGENT_ID) {
+      return context.json(
+        {
+          error:
+            "Use the dedicated scheduled chat task endpoints for the built-in schedules agent.",
+        },
+        400
+      );
+    }
 
     const request = chatRequestSchema.parse(
       (await context.req.json()) satisfies ChatRequest
     );
     return context.json(
-      await runChatFlow(agentId, request, context.req.param("sessionId"))
+      await runChatFlow(
+        workspace,
+        runtime,
+        agentId,
+        request,
+        context.req.param("sessionId")
+      )
     );
   }
 );
@@ -303,9 +369,14 @@ app.get("/api/orchestrator/sessions/:sessionId/terminal", async (context) => {
       ? Math.min(requestedMaxLines, ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT)
       : ORCHESTRATOR_TERMINAL_PAGE_LINE_LIMIT;
 
-  return context.json(
-    await orchestrator.readTerminalHistoryChunk(sessionId, beforeOffset, maxLines)
+  const chunk = orchestratorTerminalHistoryChunkSchema.parse(
+    (await orchestrator.readTerminalHistoryChunk(
+      sessionId,
+      beforeOffset,
+      maxLines
+    )) satisfies OrchestratorTerminalHistoryChunk
   );
+  return context.json(chunk);
 });
 
 app.patch("/api/orchestrator/sessions/:sessionId", async (context) => {
@@ -395,6 +466,39 @@ app.delete("/api/orchestrator/schedules/:scheduleId", async (context) => {
   return context.json({ ok: true });
 });
 
+app.get("/api/scheduled-chats/tasks", async (context) => {
+  return context.json(await chatSchedules.listTasks());
+});
+
+app.post("/api/scheduled-chats/tasks", async (context) => {
+  const request = scheduleTaskCreateSchema.parse(
+    (await context.req.json()) satisfies ScheduleTaskCreateRequest
+  );
+  return context.json(await chatSchedules.createTask(request));
+});
+
+app.get("/api/scheduled-chats/tasks/:taskId", async (context) => {
+  return context.json(await chatSchedules.getTask(context.req.param("taskId")));
+});
+
+app.patch("/api/scheduled-chats/tasks/:taskId", async (context) => {
+  const request = scheduleTaskUpdateSchema.parse(
+    (await context.req.json()) satisfies ScheduleTaskUpdateRequest
+  );
+  return context.json(
+    await chatSchedules.updateTask(context.req.param("taskId"), request)
+  );
+});
+
+app.delete("/api/scheduled-chats/tasks/:taskId", async (context) => {
+  await chatSchedules.deleteTask(context.req.param("taskId"));
+  return context.json({ ok: true });
+});
+
+app.post("/api/scheduled-chats/tasks/:taskId/run-now", async (context) => {
+  return context.json(await chatSchedules.runNow(context.req.param("taskId")));
+});
+
 app.get("/api/orchestrator/sessions/:sessionId/stream", async (context) => {
   return streamOrchestratorTerminal(context, context.req.param("sessionId"));
 });
@@ -404,100 +508,16 @@ app.get("/*", async (context) => serveWebRequest(context, context.req.path));
 
 serve({ fetch: app.fetch, port });
 scheduleService.start();
+chatSchedules.start();
 console.log(`min-kb-app runtime listening on http://localhost:${port}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
     scheduleService.stop();
+    chatSchedules.stop();
     await runtime.stop();
     process.exit(0);
   });
-}
-
-async function runChatFlow(
-  agentId: string,
-  request: ChatRequest,
-  forcedSessionId?: string
-): Promise<ChatResponse> {
-  if (!request.prompt.trim() && !request.attachment) {
-    throw new Error("Provide a prompt or attach a file before sending.");
-  }
-  const createdAt = new Date().toISOString();
-  const title =
-    request.title ??
-    createSessionTitle(request.prompt, request.attachment?.name);
-  const sessionId =
-    forcedSessionId ??
-    request.sessionId ??
-    sessionIdFromTitle(title, createdAt);
-  const agent = await getAgentById(workspace, agentId);
-  const runtimeConfig = mergeChatRuntimeConfigs(
-    agent?.runtimeConfig ?? createDefaultChatRuntimeConfig(),
-    request.config
-  );
-  const userThread = await saveChatTurn(workspace, {
-    agentId,
-    sessionId,
-    title,
-    sender: "user",
-    bodyMarkdown: buildUserTurnMarkdown(
-      request.prompt,
-      request.attachment?.name
-    ),
-    createdAt,
-    runtimeConfig,
-    attachment: request.attachment,
-  });
-  const userTurn = userThread.turns.at(-1);
-  const prompt = buildPromptWithAttachmentContext(
-    workspace.storeRoot,
-    request.prompt,
-    userTurn?.attachment
-  );
-
-  const runtimeResult = await runtime.sendMessage({
-    agentId,
-    sessionId,
-    prompt,
-    config: runtimeConfig,
-    conversation: userThread.turns.slice(0, -1).map((turn) => ({
-      sender: turn.sender,
-      bodyMarkdown: turn.bodyMarkdown,
-    })),
-  });
-
-  const summary =
-    userThread.turnCount <= 1
-      ? buildSummary(title, request.prompt, request.attachment?.name)
-      : undefined;
-  const updatedThread = await saveChatTurn(workspace, {
-    agentId,
-    sessionId,
-    title,
-    sender: "assistant",
-    bodyMarkdown: runtimeResult.assistantText,
-    createdAt: new Date().toISOString(),
-    summary,
-    runtimeConfig,
-  });
-  if (runtimeResult.llmStats) {
-    await recordSessionLlmUsage(
-      workspace,
-      agentId,
-      sessionId,
-      runtimeResult.llmStats
-    );
-  }
-
-  const assistantTurn = updatedThread.turns.at(-1);
-  if (!assistantTurn) {
-    throw new Error("Assistant turn was not persisted.");
-  }
-
-  return {
-    thread: updatedThread,
-    assistantTurn,
-  };
 }
 
 async function runMemoryAnalysisFlow(
@@ -505,7 +525,7 @@ async function runMemoryAnalysisFlow(
   sessionId: string,
   request: MemoryAnalysisRequest
 ) {
-  if (agentId === ORCHESTRATOR_AGENT_ID) {
+  if (agentId === ORCHESTRATOR_AGENT_ID || agentId === SCHEDULE_AGENT_ID) {
     throw new Error("Memory analysis only applies to chat agents.");
   }
 
@@ -534,8 +554,37 @@ async function runMemoryAnalysisFlow(
     prompt: buildMemoryAnalysisPrompt(thread, memorySkillNames),
     config: analysisConfig,
   });
-  const memoryEntriesAfter = await listMemoryEntries(workspace, { agentId });
   const analysisByTier = parseMemoryAnalysisMarkdown(result.assistantText);
+  let memoryEntriesAfter = await listMemoryEntries(workspace, { agentId });
+  let toolExecutions = result.sessionDiagnostics?.toolExecutions ?? [];
+  const initialMemoryChanges = summarizeMemoryChanges(
+    memoryEntriesBefore,
+    memoryEntriesAfter
+  );
+
+  if (
+    !hasPersistedMemoryChanges(initialMemoryChanges) &&
+    hasMemoryAnalysisContent(analysisByTier)
+  ) {
+    const fallbackWrites = await writeMemoryAnalysisFallbackEntries(workspace, {
+      agentId,
+      sessionId,
+      sessionTitle: thread.title,
+      analysisByTier,
+    });
+    if (fallbackWrites.length > 0) {
+      memoryEntriesAfter = await listMemoryEntries(workspace, { agentId });
+      toolExecutions = [
+        ...toolExecutions,
+        ...fallbackWrites.map((write) => ({
+          toolName: "memory_analysis_fallback_write",
+          success: true,
+          content: `${write.status === "added" ? "Stored" : "Updated"} ${write.tier} memory at ${write.path}.`,
+          memoryTier: write.tier,
+        })),
+      ];
+    }
+  }
 
   return {
     markdown: result.assistantText,
@@ -548,7 +597,7 @@ async function runMemoryAnalysisFlow(
     loadedSkillNames:
       result.sessionDiagnostics?.loadedSkills.map((skill) => skill.name) ?? [],
     invokedSkillNames: result.sessionDiagnostics?.invokedSkills ?? [],
-    toolExecutions: result.sessionDiagnostics?.toolExecutions ?? [],
+    toolExecutions,
     reportedLoadedSkills:
       result.sessionDiagnostics?.reportedLoadedSkills ?? false,
     analysisByTier,
@@ -557,83 +606,6 @@ async function runMemoryAnalysisFlow(
       memoryEntriesAfter
     ),
   };
-}
-
-function createSessionTitle(prompt: string, attachmentName?: string): string {
-  const words = prompt.trim().split(/\s+/).filter(Boolean).slice(0, 6);
-  if (words.length > 0) {
-    return words.join(" ");
-  }
-  if (attachmentName) {
-    return `Attachment ${attachmentName}`;
-  }
-  return "New session";
-}
-
-function buildSummary(
-  title: string,
-  prompt: string,
-  attachmentName?: string
-): string {
-  const normalizedPrompt = prompt.trim().replace(/\s+/g, " ");
-  const titleWordCount = title.trim().split(/\s+/).filter(Boolean).length;
-  const remainder = normalizedPrompt
-    .split(/\s+/)
-    .slice(titleWordCount)
-    .join(" ");
-  return (
-    remainder.slice(0, 120) ||
-    (attachmentName
-      ? `Started from the attached file ${attachmentName}.`
-      : "Started from the initial prompt.")
-  );
-}
-
-function buildUserTurnMarkdown(
-  prompt: string,
-  attachmentName?: string
-): string {
-  const trimmedPrompt = prompt.trim();
-  if (!attachmentName) {
-    return trimmedPrompt;
-  }
-  if (!trimmedPrompt) {
-    return `Attached file: \`${attachmentName}\``;
-  }
-  return `${trimmedPrompt}\n\nAttached file: \`${attachmentName}\``;
-}
-
-function buildPromptWithAttachmentContext(
-  storeRoot: string,
-  prompt: string,
-  attachment?: {
-    name: string;
-    contentType: string;
-    size: number;
-    relativePath: string;
-  }
-): string {
-  const trimmedPrompt = prompt.trim();
-  if (!attachment) {
-    return trimmedPrompt;
-  }
-
-  const attachmentPath = path.join(storeRoot, attachment.relativePath);
-  const userPrompt =
-    trimmedPrompt ||
-    "Inspect the attached file and help the user with the next relevant step.";
-
-  return [
-    "The user attached a file to this request.",
-    `Attachment name: ${attachment.name}`,
-    `Attachment type: ${attachment.contentType}`,
-    `Attachment size: ${attachment.size} bytes`,
-    `Attachment path: ${attachmentPath}`,
-    "Use the attachment as part of your response. If you need the file contents, inspect it from disk using the available tools.",
-    "",
-    "User request:",
-    userPrompt,
-  ].join("\n");
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -706,6 +678,28 @@ function classifyMemoryTier(entry: MemoryEntry): MemoryTier | undefined {
     return "long-term";
   }
   return undefined;
+}
+
+function hasPersistedMemoryChanges(changes: {
+  working: MemoryAnalysisEntryChange[];
+  shortTerm: MemoryAnalysisEntryChange[];
+  longTerm: MemoryAnalysisEntryChange[];
+}): boolean {
+  return (
+    changes.working.length > 0 ||
+    changes.shortTerm.length > 0 ||
+    changes.longTerm.length > 0
+  );
+}
+
+function hasMemoryAnalysisContent(analysisByTier: {
+  working: { summary: string; items: string[] };
+  shortTerm: { summary: string; items: string[] };
+  longTerm: { summary: string; items: string[] };
+}): boolean {
+  return Object.values(analysisByTier).some(
+    (section) => section.summary.length > 0 || section.items.length > 0
+  );
 }
 
 function tierKey(tier: MemoryTier): "working" | "shortTerm" | "longTerm" {
@@ -875,6 +869,7 @@ async function serveWebFile(
 ) {
   const body = await fs.readFile(filePath);
   return context.body(body, 200, {
+    "cache-control": getWebCacheControl(filePath),
     "content-type": getContentType(filePath),
   });
 }
@@ -900,6 +895,28 @@ function getContentType(filePath: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function getWebCacheControl(filePath: string): string {
+  const normalizedPath = filePath.split(path.sep).join("/");
+  const basename = path.basename(normalizedPath);
+
+  if (
+    normalizedPath.endsWith("/index.html") ||
+    normalizedPath.endsWith("/manifest.webmanifest") ||
+    normalizedPath.endsWith("/sw.js")
+  ) {
+    return "no-cache";
+  }
+
+  if (
+    normalizedPath.includes("/assets/") &&
+    /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(basename)
+  ) {
+    return "public, max-age=31536000, immutable";
+  }
+
+  return "public, max-age=86400";
 }
 
 async function readOptionalJson(context: Context<{ Bindings: HttpBindings }>) {

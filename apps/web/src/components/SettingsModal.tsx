@@ -12,9 +12,11 @@ interface SettingsModalProps {
   resolvedTheme: ResolvedTheme;
   models: ModelDescriptor[];
   hiddenModelIds: string[];
+  selectedChatModelId: string;
   selectedModelId: string;
   onClose: () => void;
   onThemeChange: (theme: ThemePreference) => void;
+  onChatModelChange: (modelId: string) => void;
   onToggleModelVisibility: (modelId: string) => void;
   onShowAllModels: () => void;
 }
@@ -64,6 +66,30 @@ export function SettingsModal(props: SettingsModalProps) {
             <small className="field-note">
               Currently rendering the {props.resolvedTheme} theme.
             </small>
+          </label>
+        </section>
+
+        <section className="settings-card">
+          <div>
+            <div className="eyebrow">Chat</div>
+            <h3>Default model</h3>
+            <p className="panel-caption">
+              Choose the default model to use when you start a new chat.
+            </p>
+          </div>
+          <label className="field-group">
+            <span>New chat model</span>
+            <select
+              value={props.selectedChatModelId}
+              onChange={(event) => props.onChatModelChange(event.target.value)}
+            >
+              {props.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}
+                  {model.provider ? ` - ${model.provider}` : ""}
+                </option>
+              ))}
+            </select>
           </label>
         </section>
 

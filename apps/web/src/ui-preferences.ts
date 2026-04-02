@@ -1,4 +1,8 @@
-import type { ModelDescriptor } from "@min-kb-app/shared";
+import {
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_CHAT_PROVIDER,
+  type ModelDescriptor,
+} from "@min-kb-app/shared";
 
 export type ThemePreference = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
@@ -6,6 +10,8 @@ export type ResolvedTheme = "dark" | "light";
 export interface UiPreferences {
   theme: ThemePreference;
   hiddenModelIds: string[];
+  defaultChatProvider: string;
+  defaultChatModelId: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
 }
@@ -18,6 +24,8 @@ export function createDefaultUiPreferences(): UiPreferences {
   return {
     theme: "system",
     hiddenModelIds: [],
+    defaultChatProvider: DEFAULT_CHAT_PROVIDER,
+    defaultChatModelId: DEFAULT_CHAT_MODEL,
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     sidebarCollapsed: false,
   };
@@ -39,6 +47,16 @@ export function normalizeUiPreferences(
           ),
         ]
       : defaults.hiddenModelIds,
+    defaultChatProvider:
+      typeof raw?.defaultChatProvider === "string" &&
+      raw.defaultChatProvider.trim().length > 0
+        ? raw.defaultChatProvider.trim()
+        : defaults.defaultChatProvider,
+    defaultChatModelId:
+      typeof raw?.defaultChatModelId === "string" &&
+      raw.defaultChatModelId.trim().length > 0
+        ? raw.defaultChatModelId.trim()
+        : defaults.defaultChatModelId,
     sidebarWidth:
       typeof raw?.sidebarWidth === "number"
         ? clampSidebarWidth(raw.sidebarWidth)

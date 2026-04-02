@@ -13,9 +13,14 @@ const apiMocks = vi.hoisted(() => ({
   listSkills: vi.fn(),
   getSession: vi.fn(),
   getOrchestratorCapabilities: vi.fn(),
+  getScheduledTask: vi.fn(),
   analyzeMemory: vi.fn(),
   sendMessage: vi.fn(),
   delegateOrchestratorJob: vi.fn(),
+  createScheduledTask: vi.fn(),
+  updateScheduledTask: vi.fn(),
+  deleteScheduledTask: vi.fn(),
+  runScheduledTaskNow: vi.fn(),
 }));
 
 vi.mock("./api", () => ({
@@ -80,7 +85,7 @@ beforeEach(() => {
         displayName: "LM Studio",
         capabilities: {
           supportsReasoningEffort: false,
-          supportsSkills: false,
+          supportsSkills: true,
           supportsMcpServers: false,
         },
       },
@@ -500,11 +505,10 @@ describe("App memory analysis", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(apiMocks.getSession).toHaveBeenCalledTimes(1));
-    expect(apiMocks.getSession).toHaveBeenCalledWith(
-      "support-agent",
-      "session-2"
-    );
+    const openButtons = await screen.findAllByRole("button", { name: "Open chat" });
+    expect(openButtons).toHaveLength(1);
+    expect(screen.getByText("Handle a reopened incident")).not.toBeNull();
+    expect(apiMocks.getSession).not.toHaveBeenCalled();
   });
 
   it("restores new-chat mode without auto-opening the first saved session", async () => {
@@ -549,6 +553,30 @@ describe("App memory analysis", () => {
       expect(apiMocks.listSessions).toHaveBeenCalledWith("support-agent")
     );
     expect(apiMocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("lets settings change the default chat model", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open app settings" })
+    );
+    const dialog = await screen.findByRole("dialog", { name: "App settings" });
+    expect(dialog).not.toBeNull();
+
+    await user.selectOptions(
+      screen.getByLabelText("New chat model"),
+      "qwen2.5-7b-instruct"
+    );
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    await user.keyboard("{Alt>}{Shift>}N{/Shift}{/Alt}");
+
+    expect(
+      await screen.findByText("Model: qwen2.5-7b-instruct")
+    ).not.toBeNull();
   });
 
   it("falls back to the first available session when the restored one is gone", async () => {
@@ -637,6 +665,34 @@ describe("App memory analysis", () => {
     );
 
     render(<App />);
+
+    expect(apiMocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("loads a restored session only when explicitly opened", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "support-agent",
+        selectedSessionId: "session-1",
+        preferNewSession: false,
+        draftConfig: {
+          provider: "copilot",
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+
+    render(<App />);
+
+    const [openButton] = await screen.findAllByRole("button", {
+      name: "Open chat",
+    });
+    await user.click(openButton);
 
     await waitFor(() => expect(apiMocks.getSession).toHaveBeenCalledTimes(1));
     expect(apiMocks.getSession).toHaveBeenCalledWith(

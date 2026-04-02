@@ -137,6 +137,34 @@ export async function listSkillsForAgent(
   );
 }
 
+export interface LoadedSkillDocument extends SkillDescriptor {
+  content: string;
+}
+
+export async function loadEnabledSkillDocumentsForAgent(
+  workspace: MinKbWorkspace,
+  agentId: string,
+  disabledSkillNames: string[] = []
+): Promise<LoadedSkillDocument[]> {
+  const disabledSkillNameSet = new Set(disabledSkillNames);
+  const skills = await listSkillsForAgent(workspace, agentId);
+  const loadedSkills: LoadedSkillDocument[] = [];
+
+  for (const skill of skills) {
+    if (disabledSkillNameSet.has(skill.name)) {
+      continue;
+    }
+
+    const document = await readMarkdownDocument(skill.path);
+    loadedSkills.push({
+      ...skill,
+      content: document.content,
+    });
+  }
+
+  return loadedSkills;
+}
+
 export function composeAgentPrompt(input: {
   defaultSoul: string;
   agentContract: string;

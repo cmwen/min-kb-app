@@ -75,6 +75,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const [sessionCustomAgentId, setSessionCustomAgentId] = useState(
     props.session?.selectedCustomAgentId ?? ""
   );
+  const [executionMode, setExecutionMode] = useState(
+    props.session?.executionMode ?? "standard"
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
@@ -241,14 +244,17 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       setSessionTitle("");
       setSessionModelId(props.defaultModelId);
       setSessionCustomAgentId("");
+      setExecutionMode("standard");
       setSettingsOpen(false);
       return;
     }
     setSessionTitle(props.session.title);
     setSessionModelId(props.session.model);
     setSessionCustomAgentId(props.session.selectedCustomAgentId ?? "");
+    setExecutionMode(props.session.executionMode);
   }, [
     props.defaultModelId,
+    props.session?.executionMode,
     props.session?.selectedCustomAgentId,
     props.session?.model,
     props.session?.sessionId,
@@ -432,7 +438,8 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     !!props.session &&
     (sessionTitle.trim() !== props.session.title ||
       sessionModelId !== props.session.model ||
-      sessionCustomAgentId !== (props.session.selectedCustomAgentId ?? ""));
+      sessionCustomAgentId !== (props.session.selectedCustomAgentId ?? "") ||
+      executionMode !== props.session.executionMode);
   const canSaveSessionDetails =
     !!props.session &&
     !props.pending &&
@@ -497,8 +504,8 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             <div className="eyebrow">Async delegation</div>
             <h3>Create an orchestrator session</h3>
             <p>
-              Queue work into a tmux window that runs `copilot --yolo -p` with
-              your chosen model, then monitor the terminal output here.
+              Queue work into a tmux window that runs Copilot with your chosen
+              model and execution mode, then monitor the terminal output here.
             </p>
           </div>
           <div className="field-note">{capabilityMessage}</div>
@@ -568,6 +575,24 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             />
           </label>
           <label className="field-group">
+            <span>Execution mode</span>
+            <select
+              value={executionMode}
+              onChange={(event) =>
+                setExecutionMode(
+                  event.target.value === "fleet" ? "fleet" : "standard"
+                )
+              }
+            >
+              <option value="standard">Standard</option>
+              <option value="fleet">Fleet</option>
+            </select>
+            <small className="field-note">
+              Fleet prefixes delegated prompts with <code>/fleet</code> so
+              Copilot can parallelize work when the installed CLI supports it.
+            </small>
+          </label>
+          <label className="field-group">
             <span>Initial prompt</span>
             <textarea
               value={initialPrompt}
@@ -585,6 +610,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             <div className="composer-meta">
               <span>
                 Model: {selectedNewSessionModel?.displayName ?? modelId}
+              </span>
+              <span>
+                Mode: {executionMode === "fleet" ? "Fleet" : "Standard"}
               </span>
               <span>tmux-backed</span>
               <span>Async only</span>
@@ -605,6 +633,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   projectPath: projectPath.trim(),
                   projectPurpose: projectPurpose.trim(),
                   model: modelId,
+                  executionMode,
                   prompt: initialPrompt.trim() || undefined,
                 })
               }
@@ -636,6 +665,10 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               </span>
               <span>
                 Custom agent: {selectedSavedCustomAgent?.name ?? "None"}
+              </span>
+              <span>
+                Mode:{" "}
+                {props.session.executionMode === "fleet" ? "Fleet" : "Standard"}
               </span>
               {props.session.availableCustomAgents.length > 0 ? (
                 <span>
@@ -743,6 +776,24 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                     : "No `.agent.md` files were discovered in the project path when this session was created."}
                 </small>
               </label>
+              <label className="field-group">
+                <span>Execution mode</span>
+                <select
+                  value={executionMode}
+                  onChange={(event) =>
+                    setExecutionMode(
+                      event.target.value === "fleet" ? "fleet" : "standard"
+                    )
+                  }
+                >
+                  <option value="standard">Standard</option>
+                  <option value="fleet">Fleet</option>
+                </select>
+                <small className="field-note">
+                  Fleet uses the Copilot CLI <code>/fleet</code> command for
+                  future delegated jobs when the installed CLI supports it.
+                </small>
+              </label>
             </div>
             <div className="panel-caption">
               Saved runtime: {props.session.tmuxSessionName}:
@@ -758,6 +809,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   Custom agent:{" "}
                   {selectedSessionDraftCustomAgent?.name ?? "None"}
                 </span>
+                <span>
+                  Mode: {executionMode === "fleet" ? "Fleet" : "Standard"}
+                </span>
                 <span>Applies to future delegated jobs</span>
               </div>
               <button
@@ -770,6 +824,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                     title: sessionTitle.trim(),
                     model: sessionModelId,
                     selectedCustomAgentId: sessionCustomAgentId || null,
+                    executionMode,
                   })
                 }
               >
@@ -1111,7 +1166,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           <div className="composer-footer">
             <div className="composer-meta">
               <span>
-                {`Uses \`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo -p\``}
+                {`Uses \`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo ${props.session.executionMode === "fleet" ? "-i '/fleet ...'" : "-p"}\``}
               </span>
               <span>
                 Custom agent: {selectedSavedCustomAgent?.name ?? "None"}
@@ -1239,7 +1294,8 @@ function resolveAnsiComponent(
     throw new Error("ansi-to-react did not export a React component.");
   }
 
-  const levelOneDefault = "default" in moduleExport ? moduleExport.default : undefined;
+  const levelOneDefault =
+    "default" in moduleExport ? moduleExport.default : undefined;
   if (typeof levelOneDefault === "function") {
     return levelOneDefault as (props: AnsiComponentProps) => ReactNode;
   }

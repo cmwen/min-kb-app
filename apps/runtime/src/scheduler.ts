@@ -9,6 +9,9 @@ import type {
   OrchestratorSchedule,
   OrchestratorScheduleCreateRequest,
   OrchestratorScheduleUpdateRequest,
+  ScheduleTask,
+  ScheduleTaskCreateRequest,
+  ScheduleTaskUpdateRequest,
 } from "@min-kb-app/shared";
 import { DateTime } from "luxon";
 import nodemailer, { type Transporter } from "nodemailer";
@@ -253,8 +256,14 @@ export function computeNextRunAt(
         OrchestratorSchedule,
         "frequency" | "timeOfDay" | "timezone" | "dayOfWeek" | "dayOfMonth"
       >
+    | Pick<
+        ScheduleTask,
+        "frequency" | "timeOfDay" | "timezone" | "dayOfWeek" | "dayOfMonth"
+      >
     | OrchestratorScheduleCreateRequest
-    | OrchestratorScheduleUpdateRequest,
+    | OrchestratorScheduleUpdateRequest
+    | ScheduleTaskCreateRequest
+    | ScheduleTaskUpdateRequest,
   from: DateTime = DateTime.utc()
 ): string {
   const zonedFrom = ensureTimeZone(schedule.timezone, from);

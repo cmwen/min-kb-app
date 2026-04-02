@@ -8,7 +8,8 @@ It combines a local runtime host, a basic CLI, and a PWA web UI around the Markd
 - resume chats using GitHub Copilot SDK sessions
 - switch chat sessions between the GitHub Copilot runtime and a local LM Studio provider
 - delegate async tmux-backed jobs through the built-in `copilot-orchestrator` agent
-- schedule recurring orchestrator jobs and optionally email their captured output
+- ship a repo-local Copilot implementation team under `.github/agents/` with an orchestrator plus UX, architecture, engineering, QA, and documentation specialists
+- manage recurring scheduled chats through the built-in `copilot-schedule` agent
 - load agent-local, store-global, and `~/.copilot/skills` skill directories
 - attach one file up to 5 MB to a chat message or delegated orchestrator job
 - configure model, disabled skills, and MCP servers per chat
@@ -100,10 +101,10 @@ The web app is a single-screen PWA with three main working areas plus modal over
 - resizable or collapsible session sidebar
 - chat pane with inline runtime dropdowns for model, skills, and MCP
 
-The agent rail also includes a built-in `copilot-orchestrator` agent. Selecting it replaces the normal composer flow with a tmux-backed delegation workspace that can:
+The agent rail also includes a built-in `copilot-orchestrator` agent plus a built-in `copilot-schedule` agent. Selecting the orchestrator replaces the normal composer flow with a tmux-backed delegation workspace that can:
 
 - create orchestrator sessions tied to a project path and project purpose
-- discover `.agent.md` Copilot custom agents from the target project and save one as the default for future delegated jobs
+- discover `.agent.md` Copilot custom agents from the target project and auto-select `implementation-orchestrator` when that repo-local team is present
 - queue async `copilot --yolo -p` jobs into clearly named tmux windows
 - attach one file to a delegated job so the Copilot CLI can inspect it from disk
 - stream tmux output live over SSE
@@ -112,6 +113,15 @@ The agent rail also includes a built-in `copilot-orchestrator` agent. Selecting 
 - create daily, weekly, or monthly recurring orchestrator schedules tied to a session prompt
 - optionally email a schedule run to a recipient when the delegated job finishes
 - send raw terminal input back into the tmux pane with or without submitting `Enter`
+
+Selecting the schedule agent opens a dedicated scheduled-chat workspace that can:
+
+- create daily, weekly, or monthly recurring scheduled tasks backed by normal chat agents
+- keep a stable backing chat thread for each scheduled task so the conversation history persists between runs
+- run the selected chat agent with the same configured skills and runtime behavior it already uses in chat
+- open the backing chat directly when you want to inspect or continue the scheduled conversation manually
+
+This repository now includes a default Copilot team in `.github/agents/`: `implementation-orchestrator`, `ux-designer`, `architecture`, `engineer`, `qa`, and `doc-writer`. When you point the built-in orchestrator at this repo, new sessions automatically pick `implementation-orchestrator` so delegated runs start from the specialist workflow by default.
 
 Normal chat agents keep the standard chat workflow, but now also expose provider-aware runtime controls plus a single-file attachment picker in the composer. Image attachments render inline in the timeline, while non-images download from the runtime attachment endpoint.
 
@@ -139,10 +149,11 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_STORE_ROOT` tells the runtime where to find `min-kb-store`
 - `MIN_KB_APP_PORT` controls the runtime HTTP port
 - `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` overrides the shared tmux session name used by the built-in orchestrator agent
-- `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, and `MIN_KB_APP_SMTP_FROM` enable schedule email delivery from the runtime
+- `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, and `MIN_KB_APP_SMTP_FROM` enable legacy orchestrator schedule email delivery from the runtime; scheduled chats should prefer agent skills for email workflows
 - `MIN_KB_APP_RUNTIME_URL` controls the CLI target
 - `MIN_KB_APP_LM_STUDIO_BASE_URL` or `LM_STUDIO_BASE_URL` point the optional LM Studio provider at a local OpenAI-compatible endpoint
 - `MIN_KB_APP_LM_STUDIO_MODEL` or `LM_STUDIO_MODEL` provide a fallback LM Studio model id when live model discovery is unavailable
+- `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` and `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` override the local-model discovery and chat request timeouts when slower LM Studio models need more time
 - `VITE_API_BASE_URL` lets the web build target a non-default runtime API
 - `VITE_BASE_PATH` optionally overrides the web app base path for static hosting builds
 - `RUNTIME.json` stores the saved per-session chat runtime config
@@ -171,6 +182,8 @@ The web UI now supports:
 ## Model selection
 
 Model options are loaded from the runtime as a provider-aware catalog. GitHub Copilot models come from the Copilot SDK and are merged with a bundled fallback catalog so the selector stays populated even when live discovery is unavailable. LM Studio models are discovered from the local OpenAI-compatible `/models` endpoint, with an optional environment-configured fallback model id.
+
+When LM Studio is selected, the runtime also injects the chosen agent prompt plus any enabled `SKILL.md` documents into the request as system context and reports those prompt-backed skills in session diagnostics. That gives local models a middle-tier workflow closer to Qwen-style agent behavior without claiming native Copilot skill execution. MCP server wiring still remains Copilot-only.
 
 The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them.
 

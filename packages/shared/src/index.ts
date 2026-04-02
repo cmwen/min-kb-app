@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const DEFAULT_CHAT_MODEL = "gpt-5";
+export const DEFAULT_CHAT_MODEL = "gpt-5-mini";
 export const DEFAULT_CHAT_PROVIDER = "copilot";
 
 export const chatProviderCapabilitiesSchema = z.object({
@@ -241,7 +241,7 @@ export const modelCatalogSchema = z.object({
 });
 export type ModelCatalog = z.infer<typeof modelCatalogSchema>;
 
-export const agentKindSchema = z.enum(["chat", "orchestrator"]);
+export const agentKindSchema = z.enum(["chat", "orchestrator", "schedule"]);
 export type AgentKind = z.infer<typeof agentKindSchema>;
 
 export const agentSummarySchema = z.object({
@@ -354,6 +354,11 @@ export type OrchestratorPromptMode = z.infer<
   typeof orchestratorPromptModeSchema
 >;
 
+export const orchestratorExecutionModeSchema = z.enum(["standard", "fleet"]);
+export type OrchestratorExecutionMode = z.infer<
+  typeof orchestratorExecutionModeSchema
+>;
+
 export const orchestratorScheduleFrequencySchema = z.enum([
   "daily",
   "weekly",
@@ -422,6 +427,7 @@ export const orchestratorSessionSummarySchema = z.object({
   lastJobId: z.string().min(1).optional(),
   availableCustomAgents: z.array(copilotCustomAgentSchema).default([]),
   selectedCustomAgentId: z.string().min(1).optional(),
+  executionMode: orchestratorExecutionModeSchema.default("standard"),
   premiumUsage: premiumUsageTotalsSchema.optional(),
   sessionDirectory: z.string().min(1),
   manifestPath: z.string().min(1),
@@ -480,6 +486,163 @@ export const orchestratorScheduleSchema = z.object({
 });
 export type OrchestratorSchedule = z.infer<typeof orchestratorScheduleSchema>;
 
+export const scheduleTaskRunStatusSchema = z.enum([
+  "idle",
+  "running",
+  "completed",
+  "failed",
+]);
+export type ScheduleTaskRunStatus = z.infer<typeof scheduleTaskRunStatusSchema>;
+
+export const scheduleTaskTargetKindSchema = z.enum(["chat", "orchestrator"]);
+export type ScheduleTaskTargetKind = z.infer<
+  typeof scheduleTaskTargetKindSchema
+>;
+
+const scheduleTaskBaseSchema = z.object({
+  scheduleId: z.string().min(1),
+  targetKind: scheduleTaskTargetKindSchema.default("chat"),
+  agentId: z.string().min(1).optional(),
+  orchestratorSessionId: z.string().min(1).optional(),
+  chatSessionId: z.string().min(1).optional(),
+  title: z.string().min(1),
+  prompt: z.string().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  enabled: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  nextRunAt: z.string().min(1),
+  lastRunAt: z.string().min(1).optional(),
+  lastCompletedAt: z.string().min(1).optional(),
+  lastRunStatus: scheduleTaskRunStatusSchema.default("idle"),
+  lastError: z.string().min(1).optional(),
+  totalRuns: z.number().int().nonnegative().default(0),
+  failedRuns: z.number().int().nonnegative().default(0),
+  runtimeConfig: chatRuntimeConfigSchema.optional(),
+});
+
+export const scheduleTaskSchema = scheduleTaskBaseSchema.superRefine(
+  (task, context) => {
+    if (task.targetKind === "chat") {
+      if (!task.agentId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["agentId"],
+          message: "Scheduled chat tasks require an agent id.",
+        });
+      }
+      if (!task.chatSessionId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["chatSessionId"],
+          message: "Scheduled chat tasks require a backing chat session id.",
+        });
+      }
+      if (!task.runtimeConfig) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["runtimeConfig"],
+          message: "Scheduled chat tasks require a runtime config.",
+        });
+      }
+      return;
+    }
+
+    if (!task.orchestratorSessionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orchestratorSessionId"],
+        message: "Scheduled orchestrator tasks require a session id.",
+      });
+    }
+  }
+);
+export type ScheduleTask = z.infer<typeof scheduleTaskSchema>;
+
+const scheduleTaskCreateBaseSchema = z.object({
+  targetKind: scheduleTaskTargetKindSchema.default("chat"),
+  agentId: z.string().trim().min(1).optional(),
+  orchestratorSessionId: z.string().trim().min(1).optional(),
+  title: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().trim().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  enabled: z.boolean().default(true),
+  config: partialChatRuntimeConfigSchema.optional(),
+});
+
+export const scheduleTaskCreateSchema =
+  scheduleTaskCreateBaseSchema.superRefine((request, context) => {
+    if (request.targetKind === "chat") {
+      if (!request.agentId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["agentId"],
+          message: "Scheduled chat tasks require an agent id.",
+        });
+      }
+      return;
+    }
+
+    if (!request.orchestratorSessionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orchestratorSessionId"],
+        message: "Scheduled orchestrator tasks require a session id.",
+      });
+    }
+  });
+export type ScheduleTaskCreateRequest = z.infer<
+  typeof scheduleTaskCreateSchema
+>;
+
+const scheduleTaskUpdateBaseSchema = z.object({
+  targetKind: scheduleTaskTargetKindSchema.default("chat"),
+  agentId: z.string().trim().min(1).optional(),
+  orchestratorSessionId: z.string().trim().min(1).optional(),
+  title: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+  frequency: orchestratorScheduleFrequencySchema,
+  timeOfDay: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().trim().min(1),
+  dayOfWeek: orchestratorScheduleDayOfWeekSchema.optional(),
+  dayOfMonth: z.number().int().min(1).max(31).optional(),
+  enabled: z.boolean(),
+  config: partialChatRuntimeConfigSchema.optional(),
+});
+
+export const scheduleTaskUpdateSchema =
+  scheduleTaskUpdateBaseSchema.superRefine((request, context) => {
+    if (request.targetKind === "chat") {
+      if (!request.agentId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["agentId"],
+          message: "Scheduled chat tasks require an agent id.",
+        });
+      }
+      return;
+    }
+
+    if (!request.orchestratorSessionId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orchestratorSessionId"],
+        message: "Scheduled orchestrator tasks require a session id.",
+      });
+    }
+  });
+export type ScheduleTaskUpdateRequest = z.infer<
+  typeof scheduleTaskUpdateSchema
+>;
+
 export const workspaceSummarySchema = z.object({
   storeRoot: z.string().min(1),
   copilotConfigDir: z.string().min(1),
@@ -510,6 +673,7 @@ export const orchestratorSessionCreateSchema = z.object({
   projectPurpose: z.string().min(1),
   model: z.string().min(1).default(DEFAULT_CHAT_MODEL),
   selectedCustomAgentId: z.string().trim().min(1).nullable().optional(),
+  executionMode: orchestratorExecutionModeSchema.default("standard"),
   prompt: z.string().min(1).optional(),
 });
 export type OrchestratorSessionCreateRequest = z.infer<
@@ -520,6 +684,7 @@ export const orchestratorSessionUpdateSchema = z.object({
   title: z.string().trim().min(1),
   model: z.string().trim().min(1),
   selectedCustomAgentId: z.string().trim().min(1).nullable().optional(),
+  executionMode: orchestratorExecutionModeSchema.default("standard"),
 });
 export type OrchestratorSessionUpdateRequest = z.infer<
   typeof orchestratorSessionUpdateSchema
@@ -540,6 +705,17 @@ export const orchestratorTerminalInputSchema = z.object({
 });
 export type OrchestratorTerminalInputRequest = z.infer<
   typeof orchestratorTerminalInputSchema
+>;
+
+export const orchestratorTerminalHistoryChunkSchema = z.object({
+  chunk: z.string(),
+  startOffset: z.number().int().nonnegative(),
+  endOffset: z.number().int().nonnegative(),
+  hasMoreBefore: z.boolean(),
+  lineCount: z.number().int().nonnegative(),
+});
+export type OrchestratorTerminalHistoryChunk = z.infer<
+  typeof orchestratorTerminalHistoryChunkSchema
 >;
 
 export const orchestratorScheduleCreateSchema = z.object({

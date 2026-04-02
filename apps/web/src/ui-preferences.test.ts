@@ -47,4 +47,17 @@ describe("ui-preferences", () => {
     expect(resolveTheme("system", false)).toBe("light");
     expect(resolveTheme("light", true)).toBe("light");
   });
+
+  it("normalizes saved chat default model preferences", async () => {
+    const { normalizeUiPreferences } = await import("./ui-preferences");
+    expect(
+      normalizeUiPreferences({
+        defaultChatProvider: "lmstudio",
+        defaultChatModelId: "qwen2.5-7b-instruct",
+      })
+    ).toMatchObject({
+      defaultChatProvider: "lmstudio",
+      defaultChatModelId: "qwen2.5-7b-instruct",
+    });
+  });
 });

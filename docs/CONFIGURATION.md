@@ -18,6 +18,8 @@ This project stores configuration and session metadata in three places:
 | `LM_STUDIO_BASE_URL` | runtime LM Studio provider | `http://127.0.0.1:1234/v1` | Backward-compatible fallback for the LM Studio base URL |
 | `MIN_KB_APP_LM_STUDIO_MODEL` | runtime LM Studio provider | none | Fallback LM Studio model id to expose when `/models` discovery fails |
 | `LM_STUDIO_MODEL` | runtime LM Studio provider | none | Backward-compatible fallback for the LM Studio model id |
+| `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` | runtime LM Studio provider | `15000` | Timeout for local LM Studio `/models` discovery |
+| `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` | runtime LM Studio provider | `600000` | Timeout for LM Studio `/chat/completions` requests when slower local models need more time |
 | `VITE_API_BASE_URL` | web build | empty string | Overrides the web app API root instead of using same-origin `/api` |
 | `VITE_BASE_PATH` | web build | inferred from the GitHub Pages workflow or `/` locally | Overrides the Vite base path for static hosting |
 
@@ -40,6 +42,8 @@ That file currently holds:
 - `mcpServers`
 
 The runtime config is parsed with the shared schema before it is written. The provider controls which model catalog entries are eligible for the session and whether reasoning effort, skills, and MCP server wiring remain available in the UI.
+
+For LM Studio sessions, `disabledSkills` now affects which resolved `SKILL.md` documents are injected into the system prompt. `mcpServers` still persists in the session config for compatibility, but only the GitHub Copilot runtime executes MCP wiring today.
 
 ## Orchestrator session persistence
 
@@ -118,6 +122,8 @@ Chat attachments are exposed back through `/api/agents/:agentId/sessions/:sessio
 The runtime exposes a provider-aware model catalog with `defaultProvider`, `providers`, and `models`. The GitHub Copilot provider uses the Copilot SDK `listModels()` API to discover models and metadata, including supported reasoning effort options and premium request billing multipliers when the SDK exposes them. The app also ships a bundled Copilot fallback catalog so the selector can stay populated if live discovery fails.
 
 The LM Studio provider discovers local models from its OpenAI-compatible `/models` endpoint, using the configured base URL and optional fallback model id when discovery fails.
+
+When sending a chat request through LM Studio, the runtime prepends the selected agent prompt and any enabled skill documents as prompt context. This improves local-model behavior for agentic workflows while staying honest about the runtime boundary: MCP server wiring and native tool execution still require the GitHub Copilot provider.
 
 The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities.
 

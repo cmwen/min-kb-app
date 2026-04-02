@@ -1,6 +1,7 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { resolveWorkspace } from "@min-kb-app/min-kb-store";
 import type {
   ChatSession,
   OrchestratorJob,
@@ -72,10 +73,107 @@ async function createTempJobDirectory(): Promise<string> {
   return root;
 }
 
+async function createTempWorkspaceRoot(): Promise<string> {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "min-kb-app-orch-workspace-")
+  );
+  tempRoots.push(root);
+  return root;
+}
+
 beforeEach(() => {
   storeMocks.createOrchestratorJob.mockReset();
   storeMocks.getOrchestratorSession.mockReset();
   storeMocks.resetOrchestratorTerminalLog.mockReset();
+});
+
+describe("TmuxOrchestratorService.createSession", () => {
+  it("defaults new sessions to the implementation orchestrator custom agent", async () => {
+    const root = await createTempWorkspaceRoot();
+    await mkdir(path.join(root, ".github", "agents"), { recursive: true });
+    await writeFile(
+      path.join(
+        root,
+        ".github",
+        "agents",
+        "implementation-orchestrator.agent.md"
+      ),
+      [
+        "---",
+        "name: Implementation Orchestrator",
+        "description: Coordinates the specialist Copilot agents.",
+        "---",
+        "",
+        "Delegate implementation through the specialist team.",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+    const workspace = await resolveWorkspace({
+      storeRoot: root,
+      copilotConfigDir: path.join(root, ".copilot-home"),
+    });
+    const service = new TmuxOrchestratorService(workspace, root);
+    Object.assign(service as object, {
+      assertCapabilities: vi.fn().mockResolvedValue(undefined),
+      createWindow: vi.fn().mockResolvedValue("%42"),
+      getSession: vi.fn().mockResolvedValue({
+        sessionId: "2026-03-23-ship-a-coordinated-implementation",
+        agentId: "copilot-orchestrator",
+        title: "Ship a coordinated implementation",
+        startedAt: "2026-03-23T00:00:00.000Z",
+        updatedAt: "2026-03-23T00:00:00.000Z",
+        summary: "Ship a coordinated implementation",
+        projectPath: root,
+        projectPurpose: "Ship a coordinated implementation",
+        model: "gpt-5.4",
+        tmuxSessionName: "min-kb-app-orchestrator",
+        tmuxWindowName: "tmp-ship-a-coordinated-impl",
+        tmuxPaneId: "%42",
+        status: "idle",
+        activeJobId: undefined,
+        lastJobId: undefined,
+        availableCustomAgents: [
+          {
+            id: "implementation-orchestrator",
+            name: "Implementation Orchestrator",
+            description: "Coordinates the specialist Copilot agents.",
+            path: ".github/agents/implementation-orchestrator.agent.md",
+          },
+        ],
+        selectedCustomAgentId: "implementation-orchestrator",
+        sessionDirectory: path.join(
+          root,
+          "agents",
+          "copilot-orchestrator",
+          "history",
+          "2026-03",
+          "2026-03-23-ship-a-coordinated-implementation"
+        ),
+        manifestPath:
+          "agents/copilot-orchestrator/history/2026-03/2026-03-23-ship-a-coordinated-implementation/SESSION.md",
+        jobs: [],
+        terminalTail: "",
+        logSize: 0,
+      }),
+    });
+
+    const session = await service.createSession({
+      projectPath: root,
+      projectPurpose: "Ship a coordinated implementation",
+      model: "gpt-5.4",
+    });
+
+    expect(session.availableCustomAgents).toEqual([
+      {
+        id: "implementation-orchestrator",
+        name: "Implementation Orchestrator",
+        description: "Coordinates the specialist Copilot agents.",
+        path: ".github/agents/implementation-orchestrator.agent.md",
+      },
+    ]);
+    expect(session.selectedCustomAgentId).toBe("implementation-orchestrator");
+  });
 });
 
 describe("TmuxOrchestratorService.delegate", () => {
@@ -365,6 +463,7 @@ describe("buildCopilotCommand", () => {
         prompt: "Fix the flaky test",
         promptMode: "inline",
         projectPurpose: "Repair test stability",
+        executionMode: "standard",
       })
     ).toContain("copilot --model 'gpt-5.4' --yolo -p");
   });
@@ -377,6 +476,7 @@ describe("buildCopilotCommand", () => {
         promptMode: "inline",
         projectPurpose: "Review release risk",
         customAgentId: "reviewer",
+        executionMode: "standard",
       })
     ).toContain("--agent 'reviewer'");
   });
@@ -388,9 +488,22 @@ describe("buildCopilotCommand", () => {
       promptMode: "file",
       promptPath: "/tmp/prompt.txt",
       projectPurpose: "Review logs",
+      executionMode: "standard",
     });
     expect(command).toContain("/tmp/prompt.txt");
     expect(command).toContain("Project purpose: Review logs");
+  });
+
+  it("uses fleet mode when requested", () => {
+    expect(
+      buildCopilotCommand({
+        model: "gpt-5.4",
+        prompt: "Refactor auth and tests",
+        promptMode: "inline",
+        projectPurpose: "Ship auth cleanup",
+        executionMode: "fleet",
+      })
+    ).toContain("--yolo -i '/fleet Refactor auth and tests'");
   });
 });
 
@@ -404,6 +517,7 @@ describe("buildDelegationShellScript", () => {
       prompt: "Investigate the regression",
       promptMode: "inline",
       projectPurpose: "Repair regressions",
+      executionMode: "standard",
       tmuxTarget: "%42",
     });
 
@@ -470,8 +584,8 @@ describe("buildMemoryAnalysisPrompt", () => {
     expect(prompt).toContain("Working memory");
     expect(prompt).toContain("capture-working-memory");
     expect(prompt).toContain("Safari-specific cookie flow");
-    expect(prompt).toContain("write or update");
-    expect(prompt).toContain("stored or updated");
+    expect(prompt).toContain("exactly three sections");
+    expect(prompt).toContain("If you are unsure which tier applies");
   });
 });
 
@@ -504,6 +618,53 @@ Remember the user's preferred release window.
       longTerm: {
         summary: "Remember the user's preferred release window.",
         items: ["Deploy after 6pm local time"],
+      },
+    });
+  });
+
+  it("accepts inline section labels and numbered bullets from weaker models", () => {
+    expect(
+      parseMemoryAnalysisMarkdown(`Working memory: Keep the rollback owner visible.
+1. Page the on-call engineer
+
+Short-term memory - Revisit after tomorrow's deployment.
+2. Verify the retry window
+
+Long-term memory
+3. The user prefers blue-green deploys`)
+    ).toEqual({
+      working: {
+        summary: "Keep the rollback owner visible.",
+        items: ["Page the on-call engineer"],
+      },
+      shortTerm: {
+        summary: "Revisit after tomorrow's deployment.",
+        items: ["Verify the retry window"],
+      },
+      longTerm: {
+        summary: "",
+        items: ["The user prefers blue-green deploys"],
+      },
+    });
+  });
+
+  it("falls back to working memory when the model skips section headings", () => {
+    expect(
+      parseMemoryAnalysisMarkdown(
+        "Keep the deployment owner visible.\n- Check again after tomorrow's deploy"
+      )
+    ).toEqual({
+      working: {
+        summary: "Keep the deployment owner visible.",
+        items: ["Check again after tomorrow's deploy"],
+      },
+      shortTerm: {
+        summary: "",
+        items: [],
+      },
+      longTerm: {
+        summary: "",
+        items: [],
       },
     });
   });

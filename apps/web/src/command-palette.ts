@@ -59,16 +59,25 @@ export function buildCommandPaletteItems(
     (agent) => agent.id === options.selectedAgentId
   );
   const isOrchestrator = selectedAgent?.kind === "orchestrator";
+  const isSchedule = selectedAgent?.kind === "schedule";
   const items: CommandPaletteItem[] = [
     createActionItem(
       "new-session",
-      isOrchestrator ? "Start new session" : "Start new chat",
+      isOrchestrator
+        ? "Start new session"
+        : isSchedule
+          ? "Start new schedule"
+          : "Start new chat",
       isOrchestrator
         ? "Begin a fresh tmux-backed Copilot delegation session."
-        : "Begin a fresh conversation for the selected agent.",
+        : isSchedule
+          ? "Create a fresh scheduled chat task."
+          : "Begin a fresh conversation for the selected agent.",
       isOrchestrator
         ? "new session orchestrator tmux delegation compose"
-        : "new session chat conversation compose"
+        : isSchedule
+          ? "new schedule recurring task automation"
+          : "new session chat conversation compose"
     ),
     createActionItem(
       "open-settings",

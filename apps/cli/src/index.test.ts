@@ -61,7 +61,7 @@ describe("createProgram", () => {
           prompt: "Fix the auth flow",
           config: {
             provider: "copilot",
-            model: "gpt-5",
+            model: "gpt-5-mini",
           },
         }),
       })
@@ -131,14 +131,87 @@ describe("createProgram", () => {
           title: undefined,
           projectPath: "/repo",
           projectPurpose: "Keep auth green",
-          model: "gpt-5",
+          model: "gpt-5-mini",
           selectedCustomAgentId: "reviewer",
+          executionMode: "standard",
           prompt: "Fix the auth redirect loop",
         }),
       })
     );
     expect(logSpy).toHaveBeenCalledWith(
       "Queued orchestrator job job-1 in session 2026-03-21-fix-auth."
+    );
+  });
+
+  it("creates a fleet orchestrator session when requested", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () =>
+        ({
+          sessionId: "2026-03-21-fix-auth",
+          agentId: "copilot-orchestrator",
+          title: "Auth fixes",
+          startedAt: "2026-03-21T00:00:00Z",
+          updatedAt: "2026-03-21T00:00:00Z",
+          summary: "Keep auth green",
+          projectPath: "/repo",
+          projectPurpose: "Keep auth green",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "repo-auth-fixes",
+          tmuxPaneId: "%42",
+          status: "running",
+          lastJobId: "job-1",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          executionMode: "fleet",
+          sessionDirectory: "/repo/agents/copilot-orchestrator",
+          manifestPath: "SESSION.md",
+          jobs: [
+            {
+              jobId: "job-1",
+              sessionId: "2026-03-21-fix-auth",
+              promptPreview: "Fix auth",
+              promptMode: "inline",
+              status: "queued",
+              submittedAt: "2026-03-21T00:00:00Z",
+              jobDirectory: "/repo/jobs/job-1",
+            },
+          ],
+          terminalTail: "",
+          logSize: 0,
+        }) satisfies OrchestratorSession,
+    } satisfies Partial<Response>);
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "min-kb-app",
+      "orchestrate",
+      "Fix the auth redirect loop",
+      "--project-path",
+      "/repo",
+      "--project-purpose",
+      "Keep auth green",
+      "--execution-mode",
+      "fleet",
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8787/api/orchestrator/sessions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: undefined,
+          projectPath: "/repo",
+          projectPurpose: "Keep auth green",
+          model: "gpt-5-mini",
+          selectedCustomAgentId: null,
+          executionMode: "fleet",
+          prompt: "Fix the auth redirect loop",
+        }),
+      })
     );
   });
 });

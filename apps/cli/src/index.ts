@@ -6,6 +6,7 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatSessionSummary,
+  OrchestratorExecutionMode,
   OrchestratorJob,
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
@@ -13,6 +14,7 @@ import type {
   SkillDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
+import { DEFAULT_CHAT_MODEL as defaultChatModel } from "@min-kb-app/shared";
 import { Command } from "commander";
 
 const runtimeUrl =
@@ -93,7 +95,11 @@ export function createProgram(): Command {
     .option("-s, --session <sessionId>", "Resume a specific session")
     .option("-t, --title <title>", "Title to use when creating a new session")
     .option("-m, --message <message>", "Send a single message")
-    .option("--model <model>", "Model to request from Copilot", "gpt-5")
+    .option(
+      "--model <model>",
+      "Model to request from Copilot",
+      defaultChatModel
+    )
     .action(async (agentId: string, options: ChatOptions, command: Command) => {
       const runtimeUrl = getRuntimeUrl(command);
       if (options.message) {
@@ -130,8 +136,17 @@ export function createProgram(): Command {
       "Project purpose for a new orchestrator session"
     )
     .option("-t, --title <title>", "Title to use when creating a new session")
-    .option("--model <model>", "Model to request from Copilot", "gpt-5")
+    .option(
+      "--model <model>",
+      "Model to request from Copilot",
+      defaultChatModel
+    )
     .option("--agent <agentId>", "Copilot custom agent ID to use")
+    .option(
+      "--execution-mode <mode>",
+      "Execution mode for Copilot delegated jobs (standard or fleet)",
+      "standard"
+    )
     .option("-w, --wait", "Wait for the delegated job to finish")
     .option(
       "--poll-interval <ms>",
@@ -205,6 +220,7 @@ interface OrchestrateOptions {
   title?: string;
   model: string;
   agent?: string;
+  executionMode: string;
   wait?: boolean;
   pollInterval: string;
   timeoutSeconds: string;
@@ -298,6 +314,7 @@ async function queueOrchestratorJob(
     projectPurpose: options.projectPurpose,
     model: options.model,
     selectedCustomAgentId: options.agent ?? null,
+    executionMode: parseExecutionMode(options.executionMode),
     prompt,
   };
   return requestJson<OrchestratorSession>(
@@ -310,6 +327,10 @@ async function queueOrchestratorJob(
       body: JSON.stringify(request),
     }
   );
+}
+
+function parseExecutionMode(value: string): OrchestratorExecutionMode {
+  return value === "fleet" ? "fleet" : "standard";
 }
 
 async function waitForOrchestratorJob(

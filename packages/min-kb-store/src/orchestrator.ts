@@ -5,6 +5,7 @@ import type {
   AttachmentUpload,
   ChatSessionSummary,
   CopilotCustomAgent,
+  OrchestratorExecutionMode,
   OrchestratorJob,
   OrchestratorSchedule,
   OrchestratorSession,
@@ -41,7 +42,11 @@ import {
 import type { MinKbWorkspace } from "./workspace.js";
 
 export const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
-export const ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT = 200;
+export const IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID =
+  "implementation-orchestrator";
+const DEFAULT_ORCHESTRATOR_CUSTOM_AGENT_IDS = [
+  IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID,
+];
 
 const ORCHESTRATOR_STATE_FILENAME = "ORCHESTRATOR.json";
 const ORCHESTRATOR_JOB_FILENAME = "JOB.json";
@@ -51,6 +56,8 @@ const ORCHESTRATOR_JOBS_DIRECTORY = "delegations";
 const ORCHESTRATOR_SCHEDULES_DIRECTORY = "schedules";
 const ORCHESTRATOR_SCHEDULE_FILENAME = "SCHEDULE.json";
 const ORCHESTRATOR_SESSION_HEADER = "# Orchestrator Session: ";
+export const ORCHESTRATOR_TERMINAL_LINE_LIMIT = 2_000;
+export const ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT = 200;
 
 interface StoredOrchestratorJobCompletion {
   exitCode: number;
@@ -76,6 +83,7 @@ export interface CreateOrchestratorSessionInput {
   model?: string;
   availableCustomAgents?: CopilotCustomAgent[];
   selectedCustomAgentId?: string;
+  executionMode?: OrchestratorExecutionMode;
   tmuxSessionName: string;
   tmuxWindowName: string;
   tmuxPaneId: string;
@@ -195,6 +203,7 @@ export async function createOrchestratorSession(
       .array()
       .parse(input.availableCustomAgents ?? []),
     selectedCustomAgentId: input.selectedCustomAgentId,
+    executionMode: input.executionMode ?? "standard",
     tmuxSessionName: input.tmuxSessionName,
     tmuxWindowName: input.tmuxWindowName,
     tmuxPaneId: input.tmuxPaneId,
@@ -475,7 +484,7 @@ export async function readOrchestratorTerminalHistoryChunk(
   workspace: MinKbWorkspace,
   sessionId: string,
   beforeOffset: number,
-  maxLines = 2_000
+  maxLines = ORCHESTRATOR_TERMINAL_LINE_LIMIT
 ): Promise<{
   chunk: string;
   startOffset: number;
@@ -655,6 +664,14 @@ export async function discoverCopilotCustomAgents(
   );
 }
 
+export function getDefaultOrchestratorCustomAgentId(
+  agents: readonly CopilotCustomAgent[]
+): string | undefined {
+  return DEFAULT_ORCHESTRATOR_CUSTOM_AGENT_IDS.find((agentId) =>
+    agents.some((agent) => agent.id === agentId)
+  );
+}
+
 async function writeOrchestratorJobAttachment(
   workspace: MinKbWorkspace,
   jobDirectory: string,
@@ -761,6 +778,7 @@ async function writeOrchestratorSessionManifest(
     `Project Purpose: ${state.projectPurpose}`,
     `Model: ${state.model}`,
     `Selected Custom Agent: ${state.selectedCustomAgentId ?? "none"}`,
+    `Execution Mode: ${state.executionMode}`,
     `Available Custom Agents: ${state.availableCustomAgents.length}`,
     `Tmux Session: ${state.tmuxSessionName}`,
     `Tmux Window: ${state.tmuxWindowName}`,

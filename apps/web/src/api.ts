@@ -15,7 +15,11 @@ import type {
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
+  OrchestratorTerminalHistoryChunk,
   OrchestratorTerminalInputRequest,
+  ScheduleTask,
+  ScheduleTaskCreateRequest,
+  ScheduleTaskUpdateRequest,
   SkillDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
@@ -136,7 +140,7 @@ export const api = {
       }
     ),
   getOrchestratorTerminalHistory: (sessionId: string, beforeOffset: number) =>
-    request<OrchestratorTerminalHistoryChunkResponse>(
+    request<OrchestratorTerminalHistoryChunk>(
       `/api/orchestrator/sessions/${sessionId}/terminal?before=${beforeOffset}`
     ),
   cancelOrchestratorJob: (sessionId: string) =>
@@ -184,6 +188,37 @@ export const api = {
   deleteOrchestratorSchedule: (scheduleId: string) =>
     request<{ ok: boolean }>(`/api/orchestrator/schedules/${scheduleId}`, {
       method: "DELETE",
+    }),
+  listScheduledTasks: () =>
+    request<ScheduleTask[]>("/api/scheduled-chats/tasks"),
+  getScheduledTask: (taskId: string) =>
+    request<ScheduleTask>(`/api/scheduled-chats/tasks/${taskId}`),
+  createScheduledTask: (requestBody: ScheduleTaskCreateRequest) =>
+    request<ScheduleTask>("/api/scheduled-chats/tasks", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }),
+  updateScheduledTask: (
+    taskId: string,
+    requestBody: ScheduleTaskUpdateRequest
+  ) =>
+    request<ScheduleTask>(`/api/scheduled-chats/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }),
+  deleteScheduledTask: (taskId: string) =>
+    request<{ ok: boolean }>(`/api/scheduled-chats/tasks/${taskId}`, {
+      method: "DELETE",
+    }),
+  runScheduledTaskNow: (taskId: string) =>
+    request<ScheduleTask>(`/api/scheduled-chats/tasks/${taskId}/run-now`, {
+      method: "POST",
     }),
 };
 

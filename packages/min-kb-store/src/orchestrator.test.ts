@@ -9,7 +9,9 @@ import {
   deleteOrchestratorJob,
   deleteOrchestratorSession,
   discoverCopilotCustomAgents,
+  getDefaultOrchestratorCustomAgentId,
   getOrchestratorSession,
+  IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID,
   ORCHESTRATOR_SESSION_TAIL_LINE_LIMIT,
   readOrchestratorTerminalHistoryChunk,
   resolveWorkspace,
@@ -58,6 +60,7 @@ describe("orchestrator session persistence", () => {
       "agents/copilot-orchestrator/history/2026-03/2026-03-20-fix-auth-flow/SESSION.md"
     );
     expect(created.model).toBe("claude-sonnet-4.6");
+    expect(created.executionMode).toBe("standard");
     expect(created.availableCustomAgents).toEqual([]);
     expect(created.premiumUsage).toEqual({
       chargedRequestCount: 0,
@@ -123,6 +126,7 @@ describe("orchestrator session persistence", () => {
     await updateOrchestratorSession(workspace, created.sessionId, {
       title: "Platform support",
       model: "claude-sonnet-4.6",
+      executionMode: "fleet",
     });
 
     const session = await getOrchestratorSession(workspace, created.sessionId);
@@ -133,8 +137,10 @@ describe("orchestrator session persistence", () => {
 
     expect(session.title).toBe("Platform support");
     expect(session.model).toBe("claude-sonnet-4.6");
+    expect(session.executionMode).toBe("fleet");
     expect(manifest).toContain("# Orchestrator Session: Platform support");
     expect(manifest).toContain("Model: claude-sonnet-4.6");
+    expect(manifest).toContain("Execution Mode: fleet");
     expect(manifest).toContain("Selected Custom Agent: none");
   });
 
@@ -168,6 +174,7 @@ describe("orchestrator session persistence", () => {
       lastJobId: "job-1",
       availableCustomAgents: [],
       selectedCustomAgentId: undefined,
+      executionMode: "standard",
       sessionDirectory: "/tmp/session",
       manifestPath:
         "agents/copilot-orchestrator/history/2026-03/2026-03-20-release-support/SESSION.md",
@@ -204,6 +211,25 @@ describe("orchestrator session persistence", () => {
         path: ".github/agents/reviewer.agent.md",
       },
     ]);
+  });
+
+  it("prefers the implementation orchestrator custom agent when available", () => {
+    expect(
+      getDefaultOrchestratorCustomAgentId([
+        {
+          id: "engineer",
+          name: "Engineer",
+          description: "Implements changes.",
+          path: ".github/agents/engineer.agent.md",
+        },
+        {
+          id: IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID,
+          name: "Implementation Orchestrator",
+          description: "Coordinates the delivery workflow.",
+          path: `.github/agents/${IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID}.agent.md`,
+        },
+      ])
+    ).toBe(IMPLEMENTATION_ORCHESTRATOR_CUSTOM_AGENT_ID);
   });
 
   it("deletes queued jobs from persisted session history", async () => {

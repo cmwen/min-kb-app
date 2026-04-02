@@ -20,10 +20,11 @@ export const COPILOT_RUNTIME_PROVIDER = {
 export const LM_STUDIO_RUNTIME_PROVIDER = {
   id: "lmstudio",
   displayName: "LM Studio",
-  description: "Uses LM Studio's local OpenAI-compatible API.",
+  description:
+    "Uses LM Studio's local OpenAI-compatible API with prompt-backed skills for slower local models.",
   capabilities: {
     supportsReasoningEffort: false,
-    supportsSkills: false,
+    supportsSkills: true,
     supportsMcpServers: false,
   },
 } satisfies ChatProviderDescriptor;
@@ -39,6 +40,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Haiku 4.5",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
+    premiumRequestMultiplier: 0.33,
     supportedReasoningEfforts: [],
   },
   {
@@ -46,6 +48,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Opus 4.5",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
+    premiumRequestMultiplier: 3,
     supportedReasoningEfforts: [],
   },
   {
@@ -53,6 +56,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Opus 4.6",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
+    premiumRequestMultiplier: 3,
     supportedReasoningEfforts: [],
   },
   {
@@ -60,6 +64,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Sonnet 4",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -67,6 +72,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Sonnet 4.5",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -74,20 +80,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "Claude Sonnet 4.6",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "Anthropic",
-    supportedReasoningEfforts: [],
-  },
-  {
-    id: "gemini-2.5-pro",
-    displayName: "Gemini 2.5 Pro",
-    runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
-    provider: "Google",
-    supportedReasoningEfforts: [],
-  },
-  {
-    id: "gemini-3-pro-preview",
-    displayName: "Gemini 3 Pro (Preview)",
-    runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
-    provider: "Google",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -95,6 +88,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-4.1",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 0,
     supportedReasoningEfforts: [],
   },
   {
@@ -109,6 +103,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5 mini",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 0,
     supportedReasoningEfforts: [],
   },
   {
@@ -116,6 +111,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.1",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -123,6 +119,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.1 Codex",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -130,13 +127,15 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.1 Codex Max",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
     id: "gpt-5.1-codex-mini",
-    displayName: "GPT-5.1 Codex Mini",
+    displayName: "GPT-5.1 Codex Mini (Preview)",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 0.33,
     supportedReasoningEfforts: [],
   },
   {
@@ -144,6 +143,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.2",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -151,6 +151,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.2 Codex",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -158,6 +159,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.3 Codex",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -165,6 +167,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.4",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 1,
     supportedReasoningEfforts: [],
   },
   {
@@ -172,6 +175,7 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     displayName: "GPT-5.4 mini",
     runtimeProvider: COPILOT_RUNTIME_PROVIDER.id,
     provider: "OpenAI",
+    premiumRequestMultiplier: 0.33,
     supportedReasoningEfforts: [],
   },
 ];
@@ -295,6 +299,10 @@ export function inferModelProvider(modelId: string): string | undefined {
 
   if (modelId.startsWith("gemini-")) {
     return "Google";
+  }
+
+  if (modelId.startsWith("grok-")) {
+    return "xAI";
   }
 
   if (modelId.startsWith("gpt-")) {

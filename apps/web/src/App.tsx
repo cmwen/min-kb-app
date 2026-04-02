@@ -16,6 +16,9 @@ import {
   type OrchestratorSession,
   type OrchestratorSessionCreateRequest,
   type OrchestratorSessionUpdateRequest,
+  type ScheduleTask,
+  type ScheduleTaskCreateRequest,
+  type ScheduleTaskUpdateRequest,
   type SkillDescriptor,
   type WorkspaceSummary,
 } from "@min-kb-app/shared";
@@ -51,6 +54,7 @@ import { DangerConfirmModal } from "./components/DangerConfirmModal";
 import { MemoryAnalysisModal } from "./components/MemoryAnalysisModal";
 import { OrchestratorPane } from "./components/OrchestratorPane";
 import { RuntimeControls } from "./components/RuntimeControls";
+import { SchedulePane } from "./components/SchedulePane";
 import { SessionSidebar } from "./components/SessionSidebar";
 import { SettingsModal } from "./components/SettingsModal";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle";
@@ -74,6 +78,7 @@ import {
 } from "./ui-preferences";
 
 const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
+const SCHEDULE_AGENT_ID = "copilot-schedule";
 
 type DangerAction =
   | {
@@ -107,6 +112,13 @@ type DangerAction =
       jobId: string;
       promptPreview: string;
       submittedAt: string;
+    }
+  | {
+      kind: "schedule-task";
+      scheduleId: string;
+      title: string;
+      agentId: string;
+      lastRunStatus: ScheduleTask["lastRunStatus"];
     };
 
 export default function App() {
@@ -122,27 +134,22 @@ export default function App() {
   const initialSelectedAgent = cachedSnapshot.agents.find(
     (agent) => agent.id === initialSelectedAgentId
   );
-  const initialThreadKey =
-    cachedAppState.selectedAgentId && cachedAppState.selectedSessionId
-      ? `${cachedAppState.selectedAgentId}:${cachedAppState.selectedSessionId}`
-      : undefined;
-  const cachedSelectedThread = initialThreadKey
-    ? cachedSnapshot.threadsByKey[initialThreadKey]
-    : undefined;
   const initialConfig = useMemo(
     () =>
       normalizeConfigForModel(
         cachedAppState.preferNewSession
           ? cachedAppState.draftConfig
-          : (cachedSelectedThread?.runtimeConfig ??
-              createDefaultConfig(initialSelectedAgent)),
+          : createDefaultConfig(
+              initialSelectedAgent,
+              cachedUiPreferences,
+              cachedSnapshot.models
+            ),
         cachedSnapshot.models
       ),
     [
       cachedAppState.draftConfig,
       cachedAppState.preferNewSession,
       cachedSnapshot.models,
-      cachedSelectedThread?.runtimeConfig,
       initialSelectedAgent,
     ]
   );
@@ -164,7 +171,7 @@ export default function App() {
     Record<string, ChatSessionSummary[]>
   >(cachedSnapshot.sessionsByAgent);
   const [threadsByKey, setThreadsByKey] = useState<Record<string, ChatSession>>(
-    cachedSnapshot.threadsByKey
+    {}
   );
   const [skills, setSkills] = useState<SkillDescriptor[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
@@ -208,6 +215,9 @@ export default function App() {
     orchestratorSchedulesBySessionId,
     setOrchestratorSchedulesBySessionId,
   ] = useState<Record<string, OrchestratorSchedule[]>>({});
+  const [scheduleTasksById, setScheduleTasksById] = useState<
+    Record<string, ScheduleTask>
+  >({});
   const [analyzingMemory, setAnalyzingMemory] = useState(false);
   const [memoryAnalysisOpen, setMemoryAnalysisOpen] = useState(false);
   const [memoryAnalysis, setMemoryAnalysis] = useState<
@@ -215,16 +225,35 @@ export default function App() {
   >();
   const [dangerAction, setDangerAction] = useState<DangerAction | undefined>();
   const [deletePending, setDeletePending] = useState(false);
+  const [deferInitialSessionLoad, setDeferInitialSessionLoad] = useState(
+    Boolean(
+      cachedAppState.selectedAgentId &&
+        cachedAppState.selectedSessionId &&
+        !cachedAppState.preferNewSession
+    )
+  );
+  const [sessionLoadPending, setSessionLoadPending] = useState(false);
+  const [sessionLoadTarget, setSessionLoadTarget] = useState<string>();
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const isOrchestratorAgent =
     selectedAgent?.kind === "orchestrator" ||
     selectedAgent?.id === ORCHESTRATOR_AGENT_ID;
+  const isScheduleAgent =
+    selectedAgent?.kind === "schedule" ||
+    selectedAgent?.id === SCHEDULE_AGENT_ID;
   const selectedModel = findModelDescriptor(
     models,
     config.model,
     config.provider
   );
+  const selectedDefaultChatModel = findModelDescriptor(
+    models,
+    uiPreferences.defaultChatModelId,
+    uiPreferences.defaultChatProvider
+  );
+  const buildDefaultConfig = (agent?: AgentSummary) =>
+    createDefaultConfig(agent, uiPreferences, models);
   const visibleModels = useMemo(
     () => getVisibleModels(models, uiPreferences.hiddenModelIds, config.model),
     [models, uiPreferences.hiddenModelIds, config.model]
@@ -241,9 +270,27 @@ export default function App() {
   const selectedOrchestratorSession = selectedSessionId
     ? orchestratorSessionsById[selectedSessionId]
     : undefined;
+  const selectedScheduleTask = selectedSessionId
+    ? scheduleTasksById[selectedSessionId]
+    : undefined;
+  const selectedScheduledOrchestratorSession =
+    selectedScheduleTask?.targetKind === "orchestrator" &&
+    selectedScheduleTask.orchestratorSessionId
+      ? orchestratorSessionsById[selectedScheduleTask.orchestratorSessionId]
+      : undefined;
   const selectedOrchestratorSchedules = selectedSessionId
     ? (orchestratorSchedulesBySessionId[selectedSessionId] ?? [])
     : [];
+  const selectedScheduleThreadKey = selectedScheduleTask
+    ? selectedScheduleTask.targetKind === "chat" &&
+      selectedScheduleTask.agentId &&
+      selectedScheduleTask.chatSessionId
+      ? `${selectedScheduleTask.agentId}:${selectedScheduleTask.chatSessionId}`
+      : undefined
+    : undefined;
+  const selectedScheduleThread = selectedScheduleThreadKey
+    ? threadsByKey[selectedScheduleThreadKey]
+    : undefined;
   const selectedSessionSummary =
     selectedAgentId && selectedSessionId
       ? (sessionsByAgent[selectedAgentId] ?? []).find(
@@ -355,17 +402,8 @@ export default function App() {
       defaultProvider,
       models,
       sessionsByAgent,
-      threadsByKey,
     });
-  }, [
-    workspace,
-    agents,
-    providers,
-    defaultProvider,
-    models,
-    sessionsByAgent,
-    threadsByKey,
-  ]);
+  }, [workspace, agents, providers, defaultProvider, models, sessionsByAgent]);
 
   useEffect(() => {
     saveQueue(queue);
@@ -486,11 +524,21 @@ export default function App() {
       return;
     }
 
+    if (isScheduleAgent) {
+      const cachedTask = scheduleTasksById[selectedSessionId];
+      if (cachedTask) {
+        return;
+      }
+
+      void openScheduledTask(selectedSessionId);
+      return;
+    }
+
     const nextThreadKey = `${selectedAgentId}:${selectedSessionId}`;
     const cachedThread = threadsByKey[nextThreadKey];
     if (cachedThread) {
       const runtimeConfig = normalizeConfigForModel(
-        cachedThread.runtimeConfig ?? createDefaultConfig(selectedAgent),
+        cachedThread.runtimeConfig ?? buildDefaultConfig(selectedAgent),
         models
       );
       setConfig(runtimeConfig);
@@ -498,15 +546,28 @@ export default function App() {
       return;
     }
 
+    if (deferInitialSessionLoad) {
+      return;
+    }
+
+    if (sessionLoadPending && sessionLoadTarget === nextThreadKey) {
+      return;
+    }
+
     void openSession(selectedAgentId, selectedSessionId);
   }, [
+    deferInitialSessionLoad,
     selectedAgentId,
     selectedSessionId,
     isOrchestratorAgent,
+    isScheduleAgent,
     sessionsByAgent,
     threadsByKey,
     orchestratorSessionsById,
+    scheduleTasksById,
     models,
+    sessionLoadPending,
+    sessionLoadTarget,
   ]);
 
   useEffect(() => {
@@ -517,12 +578,78 @@ export default function App() {
   }, [isOrchestratorAgent, selectedSessionId]);
 
   useEffect(() => {
+    if (!isScheduleAgent || !selectedScheduleTask) {
+      return;
+    }
+    if (
+      selectedScheduleTask.targetKind !== "chat" ||
+      selectedScheduleTask.totalRuns === 0 ||
+      !selectedScheduleTask.agentId ||
+      !selectedScheduleTask.chatSessionId
+    ) {
+      return;
+    }
+    const nextThreadKey = `${selectedScheduleTask.agentId}:${selectedScheduleTask.chatSessionId}`;
+    if (threadsByKey[nextThreadKey]) {
+      return;
+    }
+    void openSession(
+      selectedScheduleTask.agentId,
+      selectedScheduleTask.chatSessionId
+    );
+  }, [isScheduleAgent, selectedScheduleTask, threadsByKey]);
+
+  useEffect(() => {
+    if (
+      !isScheduleAgent ||
+      !selectedScheduleTask ||
+      selectedScheduleTask.targetKind !== "orchestrator" ||
+      !selectedScheduleTask.orchestratorSessionId
+    ) {
+      return;
+    }
+    if (orchestratorSessionsById[selectedScheduleTask.orchestratorSessionId]) {
+      return;
+    }
+    void openOrchestratorSession(selectedScheduleTask.orchestratorSessionId);
+  }, [isScheduleAgent, orchestratorSessionsById, selectedScheduleTask]);
+
+  useEffect(() => {
     if (models.length === 0) {
       return;
     }
 
     setConfig((current) => normalizeConfigForModel(current, models));
   }, [models]);
+
+  useEffect(() => {
+    if (models.length === 0) {
+      return;
+    }
+    const preferredModel =
+      selectedDefaultChatModel ??
+      findModelDescriptor(models, config.model, config.provider) ??
+      models[0];
+    if (
+      !preferredModel ||
+      (preferredModel.id === uiPreferences.defaultChatModelId &&
+        preferredModel.runtimeProvider === uiPreferences.defaultChatProvider)
+    ) {
+      return;
+    }
+    setUiPreferences((current) => ({
+      ...current,
+      defaultChatProvider: preferredModel.runtimeProvider,
+      defaultChatModelId: preferredModel.id,
+    }));
+  }, [
+    config.model,
+    config.provider,
+    models,
+    selectedDefaultChatModel,
+    uiPreferences.defaultChatModelId,
+    uiPreferences.defaultChatProvider,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -633,8 +760,9 @@ export default function App() {
       const selectedAgentSummary = agents.find((agent) => agent.id === agentId);
       const nextSessions = await api.listSessions(agentId);
       const nextSkills =
-        selectedAgentSummary?.kind === "orchestrator" ||
-        agentId === ORCHESTRATOR_AGENT_ID
+        selectedAgentSummary?.kind !== "chat" ||
+        agentId === ORCHESTRATOR_AGENT_ID ||
+        agentId === SCHEDULE_AGENT_ID
           ? []
           : await api.listSkills(agentId);
       setSessionsByAgent((current) => ({
@@ -657,7 +785,7 @@ export default function App() {
           setPreferNewSession(!fallbackSession);
           if (!fallbackSession) {
             const defaultConfig = normalizeConfigForModel(
-              createDefaultConfig(selectedAgent),
+              buildDefaultConfig(selectedAgent),
               models
             );
             setConfig(defaultConfig);
@@ -676,13 +804,16 @@ export default function App() {
   }
 
   async function openSession(agentId: string, sessionId: string) {
+    setDeferInitialSessionLoad(false);
+    setSessionLoadPending(true);
+    setSessionLoadTarget(`${agentId}:${sessionId}`);
     try {
       const thread = await api.getSession(agentId, sessionId);
       const nextThreadKey = `${agentId}:${sessionId}`;
       setThreadsByKey((current) => ({ ...current, [nextThreadKey]: thread }));
       const runtimeConfig = normalizeConfigForModel(
         thread.runtimeConfig ??
-          createDefaultConfig(
+          buildDefaultConfig(
             agents.find((candidate) => candidate.id === agentId)
           ),
         models
@@ -690,9 +821,15 @@ export default function App() {
       setConfig(runtimeConfig);
       setMcpText(JSON.stringify(runtimeConfig.mcpServers, null, 2));
       setOffline(false);
+      setError(undefined);
     } catch (loadError) {
-      setOffline(true);
+      setOffline(false);
       setError(getErrorMessage(loadError));
+    } finally {
+      setSessionLoadPending(false);
+      setSessionLoadTarget((current) =>
+        current === `${agentId}:${sessionId}` ? undefined : current
+      );
     }
   }
 
@@ -703,6 +840,27 @@ export default function App() {
         ...current,
         [sessionId]: session,
       }));
+      setOffline(false);
+    } catch (loadError) {
+      setOffline(true);
+      setError(getErrorMessage(loadError));
+    }
+  }
+
+  async function openScheduledTask(scheduleId: string) {
+    try {
+      const task = await api.getScheduledTask(scheduleId);
+      setScheduleTasksById((current) => ({
+        ...current,
+        [scheduleId]: task,
+      }));
+      if (
+        task.targetKind === "orchestrator" &&
+        task.orchestratorSessionId &&
+        !orchestratorSessionsById[task.orchestratorSessionId]
+      ) {
+        void openOrchestratorSession(task.orchestratorSessionId);
+      }
       setOffline(false);
     } catch (loadError) {
       setOffline(true);
@@ -728,8 +886,11 @@ export default function App() {
     setSelectedAgentId(agentId);
     setSelectedSessionId(undefined);
     setPreferNewSession(false);
+    setDeferInitialSessionLoad(false);
+    setSessionLoadPending(false);
+    setSessionLoadTarget(undefined);
     const defaultConfig = normalizeConfigForModel(
-      createDefaultConfig(agents.find((agent) => agent.id === agentId)),
+      buildDefaultConfig(agents.find((agent) => agent.id === agentId)),
       models
     );
     setConfig(defaultConfig);
@@ -744,25 +905,36 @@ export default function App() {
     setSelectedAgentId(agentId);
     setSelectedSessionId(sessionId);
     setPreferNewSession(false);
+    setDeferInitialSessionLoad(false);
     setError(undefined);
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
+    if (
+      agentId !== ORCHESTRATOR_AGENT_ID &&
+      agentId !== SCHEDULE_AGENT_ID &&
+      !threadsByKey[`${agentId}:${sessionId}`]
+    ) {
+      void openSession(agentId, sessionId);
+    }
   }
 
   function handleNewSession() {
     setSelectedSessionId(undefined);
     setPreferNewSession(true);
+    setDeferInitialSessionLoad(false);
     const defaultConfig = normalizeConfigForModel(
-      createDefaultConfig(selectedAgent),
+      buildDefaultConfig(selectedAgent),
       models
     );
     setConfig(defaultConfig);
     setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
     setMcpError(undefined);
     setError(undefined);
+    setSessionLoadPending(false);
+    setSessionLoadTarget(undefined);
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
-    if (!isOrchestratorAgent) {
+    if (!isOrchestratorAgent && !isScheduleAgent) {
       focusComposer();
     }
   }
@@ -1088,6 +1260,53 @@ export default function App() {
     }
   }
 
+  async function handleCreateScheduledTask(request: ScheduleTaskCreateRequest) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const task = await api.createScheduledTask(request);
+      storeScheduledTask(task);
+      setSelectedSessionId(task.scheduleId);
+      setPreferNewSession(false);
+      setOffline(false);
+    } catch (taskError) {
+      setError(getErrorMessage(taskError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdateScheduledTask(
+    scheduleId: string,
+    request: ScheduleTaskUpdateRequest
+  ) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const task = await api.updateScheduledTask(scheduleId, request);
+      storeScheduledTask(task);
+      setOffline(false);
+    } catch (taskError) {
+      setError(getErrorMessage(taskError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRunScheduledTask(scheduleId: string) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const task = await api.runScheduledTaskNow(scheduleId);
+      storeScheduledTask(task);
+      setOffline(false);
+    } catch (taskError) {
+      setError(getErrorMessage(taskError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleAnalyzeMemory() {
     if (!selectedAgentId || !selectedSessionId) {
       return;
@@ -1131,6 +1350,25 @@ export default function App() {
         queuedJobCount: selectedOrchestratorQueuedJobCount,
         delegatedJobCount: selectedOrchestratorSession.jobs.length,
         status: selectedOrchestratorSession.status,
+      });
+      return;
+    }
+
+    if (isScheduleAgent) {
+      if (!selectedScheduleTask) {
+        return;
+      }
+      setDangerAction({
+        kind: "schedule-task",
+        scheduleId: selectedScheduleTask.scheduleId,
+        title: selectedScheduleTask.title,
+        agentId:
+          selectedScheduleTask.targetKind === "orchestrator"
+            ? (selectedScheduledOrchestratorSession?.title ??
+              selectedScheduleTask.orchestratorSessionId ??
+              "Orchestrator session")
+            : (selectedScheduleTask.agentId ?? "Chat agent"),
+        lastRunStatus: selectedScheduleTask.lastRunStatus,
       });
       return;
     }
@@ -1235,6 +1473,10 @@ export default function App() {
           storeOrchestratorSession(session);
           break;
         }
+        case "schedule-task":
+          await api.deleteScheduledTask(dangerAction.scheduleId);
+          removeScheduledTaskLocally(dangerAction.scheduleId);
+          break;
       }
       setDangerAction(undefined);
       setOffline(false);
@@ -1332,6 +1574,33 @@ export default function App() {
     });
   }
 
+  function storeScheduledTask(task: ScheduleTask) {
+    setScheduleTasksById((current) => ({
+      ...current,
+      [task.scheduleId]: task,
+    }));
+    setSessionsByAgent((current) => {
+      const existing = current[SCHEDULE_AGENT_ID] ?? [];
+      const withoutCurrent = existing.filter(
+        (item) => item.sessionId !== task.scheduleId
+      );
+      return {
+        ...current,
+        [SCHEDULE_AGENT_ID]: [
+          buildScheduledTaskSummary(
+            task,
+            task.targetKind === "orchestrator"
+              ? (sessionsByAgent[ORCHESTRATOR_AGENT_ID] ?? []).find(
+                  (session) => session.sessionId === task.orchestratorSessionId
+                )?.title
+              : agents.find((agent) => agent.id === task.agentId)?.title
+          ),
+          ...withoutCurrent,
+        ],
+      };
+    });
+  }
+
   function removeChatSessionLocally(agentId: string, sessionId: string) {
     clearDraft(`${agentId}:${sessionId}`);
     setSessionNotificationAcks((current) =>
@@ -1364,7 +1633,7 @@ export default function App() {
       setMemoryAnalysisOpen(false);
       if (!fallbackSession) {
         const defaultConfig = normalizeConfigForModel(
-          createDefaultConfig(
+          buildDefaultConfig(
             agents.find((candidate) => candidate.id === agentId)
           ),
           models
@@ -1407,6 +1676,31 @@ export default function App() {
     }
   }
 
+  function removeScheduledTaskLocally(scheduleId: string) {
+    setSessionNotificationAcks((current) =>
+      clearSessionNotificationAck(current, SCHEDULE_AGENT_ID, scheduleId)
+    );
+    setScheduleTasksById((current) => {
+      const next = { ...current };
+      delete next[scheduleId];
+      return next;
+    });
+
+    const remainingSessions = (sessionsByAgent[SCHEDULE_AGENT_ID] ?? []).filter(
+      (session) => session.sessionId !== scheduleId
+    );
+    setSessionsByAgent((current) => ({
+      ...current,
+      [SCHEDULE_AGENT_ID]: remainingSessions,
+    }));
+
+    if (selectedSessionId === scheduleId) {
+      const fallbackSession = remainingSessions[0];
+      setSelectedSessionId(fallbackSession?.sessionId);
+      setPreferNewSession(!fallbackSession);
+    }
+  }
+
   return (
     <div
       className={
@@ -1443,14 +1737,26 @@ export default function App() {
                 sessions={sessions}
                 notificationSessionIds={notificationSessionIds}
                 selectedSessionId={selectedSessionId}
-                sessionLabel={isOrchestratorAgent ? "session" : "chat"}
+                sessionLabel={
+                  isOrchestratorAgent
+                    ? "session"
+                    : isScheduleAgent
+                      ? "schedule"
+                      : "chat"
+                }
                 newSessionLabel={
-                  isOrchestratorAgent ? "New session" : "New chat"
+                  isOrchestratorAgent
+                    ? "New session"
+                    : isScheduleAgent
+                      ? "New schedule"
+                      : "New chat"
                 }
                 emptyMessage={
                   isOrchestratorAgent
                     ? "No orchestrator sessions yet."
-                    : "No sessions yet for this agent."
+                    : isScheduleAgent
+                      ? "No scheduled tasks yet."
+                      : "No sessions yet for this agent."
                 }
                 onSelect={(sessionId) => {
                   if (!selectedAgentId) {
@@ -1484,16 +1790,24 @@ export default function App() {
           <header className="chat-pane-header">
             <div>
               <div className="eyebrow">
-                {isOrchestratorAgent ? "Orchestrator" : "Conversation"}
+                {isOrchestratorAgent
+                  ? "Orchestrator"
+                  : isScheduleAgent
+                    ? "Schedules"
+                    : "Conversation"}
               </div>
               <h2>
                 {isOrchestratorAgent
                   ? (selectedOrchestratorSession?.title ??
                     selectedAgent?.title ??
                     "min-kb-app")
-                  : (selectedThread?.title ??
-                    selectedAgent?.title ??
-                    "min-kb-app")}
+                  : isScheduleAgent
+                    ? (selectedScheduleTask?.title ??
+                      selectedAgent?.title ??
+                      "min-kb-app")
+                    : (selectedThread?.title ??
+                      selectedAgent?.title ??
+                      "min-kb-app")}
               </h2>
               <p>
                 {isOrchestratorAgent
@@ -1511,19 +1825,37 @@ export default function App() {
                     : orchestratorCapabilities
                       ? `Default project path: ${orchestratorCapabilities.defaultProjectPath}`
                       : "Waiting for orchestrator capabilities."
-                  : workspace
-                    ? `Store: ${workspace.storeRoot}`
-                    : "Waiting for the runtime to resolve the min-kb-store root."}
+                  : isScheduleAgent
+                    ? selectedScheduleTask
+                      ? `${
+                          selectedScheduleTask.targetKind === "orchestrator"
+                            ? `Session: ${
+                                selectedScheduledOrchestratorSession?.title ??
+                                selectedScheduleTask.orchestratorSessionId
+                              }`
+                            : `Agent: ${
+                                agents.find(
+                                  (agent) =>
+                                    agent.id === selectedScheduleTask.agentId
+                                )?.title ?? selectedScheduleTask.agentId
+                              }`
+                        } • Next run: ${new Date(selectedScheduleTask.nextRunAt).toLocaleString()} • ${selectedScheduleTask.lastRunStatus}`
+                      : "Choose a scheduled task or create a new one."
+                    : workspace
+                      ? `Store: ${workspace.storeRoot}`
+                      : "Waiting for the runtime to resolve the min-kb-store root."}
               </p>
             </div>
             <div className="header-actions">
               <div className="shortcut-hint">
                 {isOrchestratorAgent
                   ? "Cmd/Ctrl+K switch - Alt+Shift+N new session"
-                  : "Cmd/Ctrl+K switch - Cmd/Ctrl+Enter send"}
+                  : isScheduleAgent
+                    ? "Cmd/Ctrl+K switch - Alt+Shift+N new schedule"
+                    : "Cmd/Ctrl+K switch - Cmd/Ctrl+Enter send"}
               </div>
               <div className="header-button-row">
-                {!isOrchestratorAgent ? (
+                {!isOrchestratorAgent && !isScheduleAgent ? (
                   <button
                     type="button"
                     className="ghost-button"
@@ -1552,10 +1884,16 @@ export default function App() {
                   title={
                     isOrchestratorAgent
                       ? "Delete the selected orchestrator session"
-                      : "Delete the selected chat history"
+                      : isScheduleAgent
+                        ? "Delete the selected scheduled task"
+                        : "Delete the selected chat history"
                   }
                 >
-                  {isOrchestratorAgent ? "Delete session" : "Delete chat"}
+                  {isOrchestratorAgent
+                    ? "Delete session"
+                    : isScheduleAgent
+                      ? "Delete schedule"
+                      : "Delete chat"}
                 </button>
                 <button
                   type="button"
@@ -1577,7 +1915,7 @@ export default function App() {
                     }))
                   }
                 >
-                  {uiPreferences.sidebarCollapsed ? "Show chats" : "Hide chats"}
+                  {uiPreferences.sidebarCollapsed ? "Show list" : "Hide list"}
                   {uiPreferences.sidebarCollapsed &&
                   selectedAgentHasNotifications ? (
                     <span
@@ -1591,7 +1929,7 @@ export default function App() {
             </div>
           </header>
 
-          {!isOrchestratorAgent ? (
+          {!isOrchestratorAgent && !isScheduleAgent ? (
             <RuntimeControls
               providers={providers}
               models={models}
@@ -1682,13 +2020,95 @@ export default function App() {
               }
               onSessionUpdate={(session) => storeOrchestratorSession(session)}
             />
+          ) : isScheduleAgent ? (
+            <SchedulePane
+              task={selectedScheduleTask}
+              thread={selectedScheduleThread}
+              chatAgents={agents.filter((agent) => agent.kind === "chat")}
+              orchestratorSessions={
+                sessionsByAgent[ORCHESTRATOR_AGENT_ID] ?? []
+              }
+              orchestratorSession={selectedScheduledOrchestratorSession}
+              pending={busy}
+              error={error}
+              onCreateTask={(request) =>
+                void handleCreateScheduledTask(request)
+              }
+              onUpdateTask={(scheduleId, request) =>
+                void handleUpdateScheduledTask(scheduleId, request)
+              }
+              onDeleteTask={() => promptDeleteSelectedSession()}
+              onRunNow={(scheduleId) => void handleRunScheduledTask(scheduleId)}
+              onOpenTarget={(task) => {
+                if (
+                  task.targetKind === "orchestrator" &&
+                  task.orchestratorSessionId
+                ) {
+                  handleSelectSession(
+                    ORCHESTRATOR_AGENT_ID,
+                    task.orchestratorSessionId
+                  );
+                  return;
+                }
+                if (task.agentId && task.chatSessionId) {
+                  handleSelectSession(task.agentId, task.chatSessionId);
+                }
+              }}
+            />
           ) : (
             <>
-              <ChatTimeline
-                thread={selectedThread}
-                pending={busy}
-                error={error}
-              />
+              {selectedSessionId &&
+              !preferNewSession &&
+              !selectedThread &&
+              selectedSessionSummary ? (
+                <section className="chat-empty-state">
+                  <h2>{selectedSessionSummary.title}</h2>
+                  <p>
+                    {sessionLoadPending &&
+                    sessionLoadTarget ===
+                      `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
+                      ? "Loading this chat without blocking the rest of the app."
+                      : "Open this chat on demand to avoid loading a large history during startup."}
+                  </p>
+                  <div className="panel-actions">
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() =>
+                        void openSession(
+                          selectedSessionSummary.agentId,
+                          selectedSessionSummary.sessionId
+                        )
+                      }
+                      disabled={sessionLoadPending}
+                    >
+                      {sessionLoadPending &&
+                      sessionLoadTarget ===
+                        `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
+                        ? "Loading..."
+                        : "Open chat"}
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={handleNewSession}
+                    >
+                      New chat
+                    </button>
+                  </div>
+                  {error ? (
+                    <div className="error-row" role="alert">
+                      {error}
+                    </div>
+                  ) : null}
+                </section>
+              ) : (
+                <ChatTimeline
+                  thread={selectedThread}
+                  pending={busy}
+                  error={error}
+                />
+              )}
 
               <div className="composer-shell">
                 <SingleAttachmentPicker
@@ -1749,6 +2169,9 @@ export default function App() {
         resolvedTheme={resolvedTheme}
         models={models}
         hiddenModelIds={uiPreferences.hiddenModelIds}
+        selectedChatModelId={
+          selectedDefaultChatModel?.id ?? uiPreferences.defaultChatModelId
+        }
         selectedModelId={config.model}
         onClose={() => setSettingsOpen(false)}
         onThemeChange={(theme) =>
@@ -1757,6 +2180,17 @@ export default function App() {
             theme,
           }))
         }
+        onChatModelChange={(modelId) => {
+          const model = models.find((candidate) => candidate.id === modelId);
+          if (!model) {
+            return;
+          }
+          setUiPreferences((current) => ({
+            ...current,
+            defaultChatProvider: model.runtimeProvider,
+            defaultChatModelId: model.id,
+          }));
+        }}
         onToggleModelVisibility={handleToggleModelVisibility}
         onShowAllModels={() =>
           setUiPreferences((current) => ({
@@ -1801,10 +2235,22 @@ export default function App() {
   );
 }
 
-function createDefaultConfig(agent?: AgentSummary): ChatRuntimeConfig {
-  return mergeChatRuntimeConfigs(
+function createDefaultConfig(
+  agent: AgentSummary | undefined,
+  uiPreferences = loadUiPreferences(),
+  models: ModelDescriptor[] = []
+): ChatRuntimeConfig {
+  const merged = mergeChatRuntimeConfigs(
     createDefaultChatRuntimeConfig(),
     agent?.runtimeConfig
+  );
+  return normalizeConfigForModel(
+    {
+      ...merged,
+      provider: uiPreferences.defaultChatProvider || merged.provider,
+      model: uiPreferences.defaultChatModelId || merged.model,
+    },
+    models
   );
 }
 
@@ -1842,6 +2288,33 @@ function buildOrchestratorListSummary(
   };
 }
 
+function buildScheduledTaskSummary(
+  task: ScheduleTask,
+  agentTitle?: string
+): ChatSessionSummary {
+  const targetLabel =
+    task.targetKind === "orchestrator"
+      ? (task.orchestratorSessionId ?? "Orchestrator session")
+      : (agentTitle ?? task.agentId ?? "Chat agent");
+  return {
+    sessionId: task.scheduleId,
+    agentId: SCHEDULE_AGENT_ID,
+    title: task.title,
+    startedAt: task.createdAt,
+    summary: `${targetLabel} • ${
+      task.enabled ? "Active" : "Paused"
+    } • ${task.lastRunStatus}`,
+    manifestPath: `agents/${SCHEDULE_AGENT_ID}/history/${task.createdAt.slice(0, 7)}/${task.scheduleId}/SCHEDULE_TASK.json`,
+    turnCount: task.totalRuns,
+    lastTurnAt: task.lastCompletedAt ?? task.lastRunAt,
+    runtimeConfig: task.runtimeConfig,
+    completionStatus:
+      task.lastRunStatus === "completed" || task.lastRunStatus === "failed"
+        ? task.lastRunStatus
+        : undefined,
+  };
+}
+
 function clearSessionNotificationAck(
   acknowledgements: Record<string, string>,
   agentId: string,
@@ -1867,6 +2340,8 @@ function getDangerTitle(action: DangerAction): string {
       return "Start a new tmux session?";
     case "orchestrator-job":
       return "Delete this queued task?";
+    case "schedule-task":
+      return "Delete this scheduled task?";
   }
 }
 
@@ -1880,6 +2355,8 @@ function getDangerDescription(action: DangerAction): string {
       return `Start a fresh tmux pane for "${action.title}" and stop the current one.`;
     case "orchestrator-job":
       return "Remove this queued task before it starts running in tmux.";
+    case "schedule-task":
+      return `Remove "${action.title}" and stop any future scheduled runs for this task.`;
   }
 }
 
@@ -1911,6 +2388,11 @@ function getDangerDetails(action: DangerAction): string[] {
         action.promptPreview,
         `Queued ${formatTimestamp(action.submittedAt)}`,
       ];
+    case "schedule-task":
+      return [
+        `Target: ${action.agentId}`,
+        `Last result: ${action.lastRunStatus}`,
+      ];
   }
 }
 
@@ -1924,6 +2406,8 @@ function getDangerWarning(action: DangerAction): string {
       return "You will not be able to retrieve or view logs from the previous tmux session after starting a new one. Any running task will be stopped.";
     case "orchestrator-job":
       return "This permanently removes the queued task from the session backlog. Running and completed jobs stay untouched.";
+    case "schedule-task":
+      return "This permanently removes the scheduled task definition. The backing chat history remains available under the original chat agent.";
   }
 }
 
@@ -1937,6 +2421,8 @@ function getDangerAcknowledgeLabel(action: DangerAction): string {
       return "I understand the previous tmux session logs will no longer be available.";
     case "orchestrator-job":
       return "I understand this queued task will be removed before it runs.";
+    case "schedule-task":
+      return "I understand this scheduled task cannot be restored.";
   }
 }
 
@@ -1950,6 +2436,8 @@ function getDangerConfirmLabel(action: DangerAction): string {
       return "Start new tmux session";
     case "orchestrator-job":
       return "Delete queued task";
+    case "schedule-task":
+      return "Delete schedule";
   }
 }
 
@@ -1958,6 +2446,7 @@ function getDangerBusyLabel(action: DangerAction): string {
     case "chat-session":
     case "orchestrator-session":
     case "orchestrator-job":
+    case "schedule-task":
       return "Deleting...";
     case "orchestrator-session-restart":
       return "Starting...";
