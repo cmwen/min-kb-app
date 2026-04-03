@@ -6,8 +6,8 @@ It combines a local runtime host, a basic CLI, and a PWA web UI around the Markd
 
 - browse agents and sessions from `min-kb-store`
 - resume chats using GitHub Copilot SDK sessions
-- switch chat sessions between the GitHub Copilot runtime and a local LM Studio provider
-- delegate async tmux-backed jobs through the built-in `copilot-orchestrator` agent
+- switch chat sessions between the GitHub Copilot runtime, the Gemini SDK runtime, and a local LM Studio provider
+- delegate async tmux-backed jobs through the built-in `copilot-orchestrator` agent with either the `copilot` or `gemini` CLI
 - ship a repo-local Copilot implementation team under `.github/agents/` with an orchestrator plus UX, architecture, engineering, QA, and documentation specialists
 - manage recurring scheduled chats through the built-in `copilot-schedule` agent
 - load agent-local, store-global, and `~/.copilot/skills` skill directories
@@ -86,12 +86,13 @@ packages/
    pnpm --filter @min-kb-app/cli dev agents
    pnpm --filter @min-kb-app/cli dev chat coding-agent
    pnpm --filter @min-kb-app/cli dev chat coding-agent -m "Fix the failing tests"
-   pnpm --filter @min-kb-app/cli dev orchestrate --project-path "$PWD" --project-purpose "Keep the repo healthy" --wait "Fix the failing tests"
+   pnpm --filter @min-kb-app/cli dev chat coding-agent --provider gemini --model gemini-3-pro-preview -m "Summarize the latest failures"
+   pnpm --filter @min-kb-app/cli dev orchestrate --project-path "$PWD" --project-purpose "Keep the repo healthy" --provider gemini --wait "Fix the failing tests"
    ```
 
-   `chat -m` is non-interactive, so it is safe to call from cron. `orchestrate` gives the same one-shot flow for the tmux-backed Copilot orchestrator, either by creating a new session from `--project-path`/`--project-purpose` or by reusing an existing one with `--session`.
+   `chat -m` is non-interactive, so it is safe to call from cron. `orchestrate` gives the same one-shot flow for the tmux-backed orchestrator, either by creating a new session from `--project-path`/`--project-purpose` or by reusing an existing one with `--session`. Both commands now accept `--provider` so you can explicitly target Copilot, Gemini, or LM Studio where supported.
 
-For the orchestrator workflow, make sure both `tmux` and the GitHub `copilot` CLI are installed locally.
+For the orchestrator workflow, make sure `tmux` is installed locally plus at least one supported CLI backend: GitHub `copilot` or Google `gemini`.
 
 ## Using the Web UI
 
@@ -104,9 +105,10 @@ The web app is a single-screen PWA with three main working areas plus modal over
 The agent rail also includes a built-in `copilot-orchestrator` agent plus a built-in `copilot-schedule` agent. Selecting the orchestrator replaces the normal composer flow with a tmux-backed delegation workspace that can:
 
 - create orchestrator sessions tied to a project path and project purpose
+- choose whether a session runs through GitHub Copilot CLI or Gemini CLI
 - discover `.agent.md` Copilot custom agents from the target project and auto-select `implementation-orchestrator` when that repo-local team is present
-- queue async `copilot --yolo -p` jobs into clearly named tmux windows
-- attach one file to a delegated job so the Copilot CLI can inspect it from disk
+- queue async `copilot --yolo -p` or `gemini --yolo --prompt` jobs into clearly named tmux windows
+- attach one file to a delegated job so the selected CLI can inspect it from disk
 - stream tmux output live over SSE
 - show red-dot unread completion badges in the agent/session UI when delegated work finishes in the background
 - cancel a stuck delegated job, restart the tmux pane for fresh work, delete queued jobs, and delete whole orchestrator sessions
@@ -151,6 +153,9 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` overrides the shared tmux session name used by the built-in orchestrator agent
 - `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, and `MIN_KB_APP_SMTP_FROM` enable legacy orchestrator schedule email delivery from the runtime; scheduled chats should prefer agent skills for email workflows
 - `MIN_KB_APP_RUNTIME_URL` controls the CLI target
+- `MIN_KB_APP_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` authenticate the Gemini SDK runtime provider
+- `MIN_KB_APP_GEMINI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_VERTEXAI`, `MIN_KB_APP_GEMINI_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `MIN_KB_APP_GEMINI_LOCATION`, `GOOGLE_CLOUD_LOCATION`, and `MIN_KB_APP_GEMINI_API_VERSION` configure Gemini Vertex/API routing when needed
+- `MIN_KB_APP_GEMINI_MODEL` provides a fallback Gemini model id when live Gemini model discovery is unavailable
 - `MIN_KB_APP_LM_STUDIO_BASE_URL` or `LM_STUDIO_BASE_URL` point the optional LM Studio provider at a local OpenAI-compatible endpoint
 - `MIN_KB_APP_LM_STUDIO_MODEL` or `LM_STUDIO_MODEL` provide a fallback LM Studio model id when live model discovery is unavailable
 - `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` and `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` override the local-model discovery and chat request timeouts when slower LM Studio models need more time
@@ -181,11 +186,11 @@ The web UI now supports:
 
 ## Model selection
 
-Model options are loaded from the runtime as a provider-aware catalog. GitHub Copilot models come from the Copilot SDK and are merged with a bundled fallback catalog so the selector stays populated even when live discovery is unavailable. LM Studio models are discovered from the local OpenAI-compatible `/models` endpoint, with an optional environment-configured fallback model id.
+Model options are loaded from the runtime as a provider-aware catalog. GitHub Copilot models come from the Copilot SDK and are merged with a bundled fallback catalog so the selector stays populated even when live discovery is unavailable. Gemini models come from the Gemini SDK `models.list()` API with bundled `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` fallbacks, matching the newer Gemini CLI model families when discovery is unavailable. LM Studio models are discovered from the local OpenAI-compatible `/models` endpoint, with an optional environment-configured fallback model id.
 
-When LM Studio is selected, the runtime also injects the chosen agent prompt plus any enabled `SKILL.md` documents into the request as system context and reports those prompt-backed skills in session diagnostics. That gives local models a middle-tier workflow closer to Qwen-style agent behavior without claiming native Copilot skill execution. MCP server wiring still remains Copilot-only.
+When Gemini or LM Studio is selected, the runtime injects the chosen agent prompt plus any enabled `SKILL.md` documents into the request as prompt-backed system context. That gives non-Copilot providers a middle-tier workflow closer to agent behavior without claiming native Copilot skill execution. MCP server wiring still remains Copilot-only.
 
-The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them.
+The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them. Gemini currently keeps prompt-backed skills available, but not MCP wiring or reasoning-effort controls. In orchestrator sessions, Copilot keeps custom-agent and fleet-mode controls while Gemini sessions stay on standard execution without custom agents.
 
 ## Troubleshooting
 
@@ -209,7 +214,7 @@ This first scaffold focuses on a working end-to-end flow:
 - resolve a local `min-kb-store`
 - inspect agents, skills, sessions, and memory
 - send prompts through Copilot SDK using min-kb-store agents as custom agents
-- delegate async Copilot CLI work through tmux-backed orchestrator sessions
+- delegate async Copilot CLI or Gemini CLI work through tmux-backed orchestrator sessions
 - inspect a chat thread with `gpt-5-mini` for memory-worthy context and memory updates without cluttering the chat history
 - save chat turns back into the canonical Markdown history layout
 - present an agent-first chat UI with per-session runtime config

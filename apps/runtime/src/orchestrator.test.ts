@@ -503,7 +503,7 @@ describe("buildCopilotCommand", () => {
         projectPurpose: "Ship auth cleanup",
         executionMode: "fleet",
       })
-    ).toContain("--yolo -i '/fleet Refactor auth and tests'");
+    ).toContain("--yolo -p '/fleet Refactor auth and tests'");
   });
 });
 
@@ -1206,7 +1206,11 @@ describe("TmuxOrchestratorService.updateSession", () => {
       "session-1",
       {
         title: "Payments platform",
+        cliProvider: "copilot",
         model: "claude-sonnet-4.6",
+        availableCustomAgents: [],
+        selectedCustomAgentId: undefined,
+        executionMode: "standard",
         tmuxWindowName: "project-payments-platform-on",
       }
     );

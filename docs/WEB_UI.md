@@ -45,20 +45,20 @@ That view includes:
 
 - an inline form for creating a new orchestrator session with project path, project purpose, and an optional initial prompt
 - an inline session summary card whose settings expand directly beneath the top action row instead of below the terminal
-- session settings for renaming the project, changing the saved Copilot model, and selecting a discovered project-local custom agent
+- session settings for renaming the project, changing the saved CLI provider and model, and selecting a discovered project-local custom agent when the chosen provider supports it
 - a queue-oriented task pipeline card that keeps the current run, queued follow-up prompts, and recent completions visible in one place
 - a live terminal output panel backed by SSE from the runtime
 - metadata cards showing the tmux session/window target and current status
 - icon-forward action buttons for settings, cancel, delegate, save, and raw terminal input submission
-- a prompt box for queuing another async `copilot --yolo -p` job, even while the current task is still running
-- a single-file attachment picker for delegated jobs so the Copilot CLI can inspect uploaded files from disk
+- a prompt box for queuing another async `copilot --yolo -p` or `gemini --yolo --prompt` job, even while the current task is still running
+- a single-file attachment picker for delegated jobs so the selected CLI can inspect uploaded files from disk
 - a raw terminal input box with buttons to send text only or send text plus `Enter` into the tmux pane
 
 Completed or failed orchestrator sessions now leave a small red dot on their session card until you open that session. The same unread state also bubbles up to the agent rail and the collapsed `Show chats` button so long-running work still surfaces even when the session list is hidden.
 
 When delegated work finishes, the tmux pane now emits an explicit completion line, keeps a tmux status message visible longer, and rings the terminal bell so the terminal side also feels like a real notification instead of just another log line.
 
-The session list still appears in the existing `SessionSidebar`, but the cards represent orchestrator sessions rather than saved chats. The capability banner reflects whether both `tmux` and the GitHub `copilot` CLI are available, and the live output view resumes by tailing the persisted pane log.
+The session list still appears in the existing `SessionSidebar`, but the cards represent orchestrator sessions rather than saved chats. The capability banner reflects whether `tmux` plus at least one supported CLI backend is available, and the live output view resumes by tailing the persisted pane log.
 
 Destructive actions go through a confirmation modal. From the orchestrator workspace you can delete the whole session, start a brand-new tmux pane for the same saved session, or remove queued jobs that have not started yet.
 

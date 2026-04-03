@@ -14,6 +14,17 @@ This project stores configuration and session metadata in three places:
 | `MIN_KB_APP_PORT` | runtime host | `8787` | HTTP port for the local Hono runtime |
 | `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` | runtime orchestrator service | `min-kb-app-orchestrator` | Shared tmux session name that holds one window per orchestrator session |
 | `MIN_KB_APP_RUNTIME_URL` | CLI | `http://localhost:8787` | Base URL for the CLI client |
+| `MIN_KB_APP_GEMINI_API_KEY` | runtime Gemini provider | none | Preferred Gemini API key for the Google GenAI SDK |
+| `GEMINI_API_KEY` | runtime Gemini provider | none | Backward-compatible Gemini API key fallback |
+| `GOOGLE_API_KEY` | runtime Gemini provider | none | Google API key fallback accepted by the Gemini SDK |
+| `MIN_KB_APP_GEMINI_USE_VERTEXAI` | runtime Gemini provider | unset | Enables Vertex AI mode for Gemini when set to `true` |
+| `GOOGLE_GENAI_USE_VERTEXAI` | runtime Gemini provider | unset | Backward-compatible Vertex AI toggle |
+| `MIN_KB_APP_GEMINI_PROJECT` | runtime Gemini provider | none | Preferred Google Cloud project when using Vertex AI |
+| `GOOGLE_CLOUD_PROJECT` | runtime Gemini provider | none | Backward-compatible Google Cloud project fallback |
+| `MIN_KB_APP_GEMINI_LOCATION` | runtime Gemini provider | none | Preferred Google Cloud location when using Vertex AI |
+| `GOOGLE_CLOUD_LOCATION` | runtime Gemini provider | none | Backward-compatible Google Cloud location fallback |
+| `MIN_KB_APP_GEMINI_API_VERSION` | runtime Gemini provider | SDK default | Optional Gemini API version override |
+| `MIN_KB_APP_GEMINI_MODEL` | runtime Gemini provider | none | Fallback Gemini model id to expose when live Gemini discovery fails |
 | `MIN_KB_APP_LM_STUDIO_BASE_URL` | runtime LM Studio provider | `http://127.0.0.1:1234/v1` | Preferred override for the LM Studio OpenAI-compatible base URL |
 | `LM_STUDIO_BASE_URL` | runtime LM Studio provider | `http://127.0.0.1:1234/v1` | Backward-compatible fallback for the LM Studio base URL |
 | `MIN_KB_APP_LM_STUDIO_MODEL` | runtime LM Studio provider | none | Fallback LM Studio model id to expose when `/models` discovery fails |
@@ -43,7 +54,7 @@ That file currently holds:
 
 The runtime config is parsed with the shared schema before it is written. The provider controls which model catalog entries are eligible for the session and whether reasoning effort, skills, and MCP server wiring remain available in the UI.
 
-For LM Studio sessions, `disabledSkills` now affects which resolved `SKILL.md` documents are injected into the system prompt. `mcpServers` still persists in the session config for compatibility, but only the GitHub Copilot runtime executes MCP wiring today.
+For Gemini and LM Studio sessions, `disabledSkills` affects which resolved `SKILL.md` documents are injected into the system prompt. `mcpServers` still persists in the session config for compatibility, but only the GitHub Copilot runtime executes MCP wiring today.
 
 ## Orchestrator session persistence
 
@@ -83,7 +94,7 @@ agents/<agent>/history/<YYYY-MM>/<session-id>/
     <timestamp>-assistant.md
 ```
 
-`SESSION.md` stays human-readable. `ORCHESTRATOR.json` mirrors mutable tmux/runtime metadata such as the project path, project purpose, tmux window and pane IDs, active job, discovered custom agents, selected custom agent, and accumulated premium request usage for tmux-backed delegations. Each delegation folder keeps the queued job record, completion record, optional uploaded attachment, optional materialized prompt, and generated shell script used to invoke `copilot --model ... --yolo -p`.
+`SESSION.md` stays human-readable. `ORCHESTRATOR.json` mirrors mutable tmux/runtime metadata such as the project path, project purpose, selected CLI provider, tmux window and pane IDs, active job, discovered custom agents, selected custom agent, execution mode, and accumulated premium request usage for tmux-backed delegations. Each delegation folder keeps the queued job record, completion record, optional uploaded attachment, optional materialized prompt, and generated shell script used to invoke either `copilot --model ... --yolo -p` or `gemini --model ... --yolo --prompt ...`.
 
 ## Browser-local persistence
 
@@ -121,11 +132,13 @@ Chat attachments are exposed back through `/api/agents/:agentId/sessions/:sessio
 
 The runtime exposes a provider-aware model catalog with `defaultProvider`, `providers`, and `models`. The GitHub Copilot provider uses the Copilot SDK `listModels()` API to discover models and metadata, including supported reasoning effort options and premium request billing multipliers when the SDK exposes them. The app also ships a bundled Copilot fallback catalog so the selector can stay populated if live discovery fails.
 
+The Gemini provider uses the Google GenAI SDK `models.list()` API and falls back to bundled `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` descriptors plus the optional configured fallback model id when discovery fails.
+
 The LM Studio provider discovers local models from its OpenAI-compatible `/models` endpoint, using the configured base URL and optional fallback model id when discovery fails.
 
-When sending a chat request through LM Studio, the runtime prepends the selected agent prompt and any enabled skill documents as prompt context. This improves local-model behavior for agentic workflows while staying honest about the runtime boundary: MCP server wiring and native tool execution still require the GitHub Copilot provider.
+When sending a chat request through Gemini or LM Studio, the runtime prepends the selected agent prompt and any enabled skill documents as prompt context. This improves non-Copilot behavior for agentic workflows while staying honest about the runtime boundary: MCP server wiring and native tool execution still require the GitHub Copilot provider.
 
-The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities.
+The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities. In the orchestrator workspace, Copilot sessions expose custom-agent and fleet-mode controls, while Gemini sessions intentionally limit those controls to the subset supported by the `gemini` CLI.
 
 ## MCP JSON
 

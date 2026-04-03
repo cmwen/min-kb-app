@@ -62,7 +62,6 @@ import { SingleAttachmentPicker } from "./components/SingleAttachmentPicker";
 import {
   findModelDescriptor,
   formatReasoningEffort,
-  getModelsForProvider,
   normalizeConfigForModel,
 } from "./model-config";
 import {
@@ -96,6 +95,12 @@ type DangerAction =
       queuedJobCount: number;
       delegatedJobCount: number;
       status: OrchestratorSession["status"];
+    }
+  | {
+      kind: "orchestrator-duplicates";
+      title: string;
+      keptSessionId: string;
+      duplicateSessionIds: string[];
     }
   | {
       kind: "orchestrator-session-restart";
@@ -304,25 +309,21 @@ export default function App() {
     ? findModelDescriptor(
         models,
         selectedOrchestratorSession.model,
-        defaultProvider
+        selectedOrchestratorSession.cliProvider
       )
     : undefined;
   const visibleOrchestratorModels = useMemo(
     () =>
-      getModelsForProvider(
-        getVisibleModels(
-          models,
-          uiPreferences.hiddenModelIds,
-          selectedOrchestratorSession?.model ?? config.model
-        ),
-        defaultProvider
+      getVisibleModels(
+        models,
+        uiPreferences.hiddenModelIds,
+        selectedOrchestratorSession?.model ?? config.model
       ),
     [
       models,
       uiPreferences.hiddenModelIds,
       selectedOrchestratorSession?.model,
       config.model,
-      defaultProvider,
     ]
   );
   const draftKey = `${selectedAgentId ?? "no-agent"}:${selectedSessionId ?? "new"}`;
@@ -725,12 +726,18 @@ export default function App() {
           api.listModels(),
           api.getOrchestratorCapabilities(),
         ]);
+      const orchestratorSessions = await api.listOrchestratorSessions();
       setWorkspace(workspaceResponse);
       setAgents(agentsResponse);
       setProviders(modelCatalog.providers);
       setDefaultProvider(modelCatalog.defaultProvider);
       setModels(modelCatalog.models);
       setOrchestratorCapabilities(capabilities);
+      setOrchestratorSessionsById(
+        Object.fromEntries(
+          orchestratorSessions.map((session) => [session.sessionId, session])
+        )
+      );
       setConfig((current) =>
         normalizeConfigForModel(
           {
@@ -1414,6 +1421,19 @@ export default function App() {
     });
   }
 
+  function promptDeleteOlderOrchestratorDuplicates(sessionIds: string[]) {
+    if (!selectedOrchestratorSession || sessionIds.length === 0) {
+      return;
+    }
+
+    setDangerAction({
+      kind: "orchestrator-duplicates",
+      title: selectedOrchestratorSession.title,
+      keptSessionId: selectedOrchestratorSession.sessionId,
+      duplicateSessionIds: sessionIds,
+    });
+  }
+
   function promptDeleteQueuedJob(jobId: string) {
     if (!selectedOrchestratorSession) {
       return;
@@ -1457,6 +1477,12 @@ export default function App() {
             dangerAction.sessionId
           );
           removeOrchestratorSessionLocally(dangerAction.sessionId);
+          break;
+        case "orchestrator-duplicates":
+          for (const sessionId of dangerAction.duplicateSessionIds) {
+            await api.deleteSession(ORCHESTRATOR_AGENT_ID, sessionId);
+            removeOrchestratorSessionLocally(sessionId);
+          }
           break;
         case "orchestrator-session-restart": {
           const session = await api.restartOrchestratorSession(
@@ -1990,7 +2016,11 @@ export default function App() {
               session={selectedOrchestratorSession}
               schedules={selectedOrchestratorSchedules}
               models={visibleOrchestratorModels}
+              defaultCliProvider={
+                orchestratorCapabilities?.defaultCliProvider ?? defaultProvider
+              }
               defaultModelId={config.model}
+              allSessions={Object.values(orchestratorSessionsById)}
               projectPathSuggestions={orchestratorProjectPathSuggestions}
               pending={busy}
               error={error}
@@ -2000,6 +2030,10 @@ export default function App() {
               onUpdateSession={(request) =>
                 void handleUpdateOrchestratorSession(request)
               }
+              onSelectSession={(sessionId) =>
+                handleSelectSession(ORCHESTRATOR_AGENT_ID, sessionId)
+              }
+              onDeleteOlderDuplicates={promptDeleteOlderOrchestratorDuplicates}
               onDelegate={(request) =>
                 void handleDelegateOrchestratorPrompt(request)
               }
@@ -2336,6 +2370,8 @@ function getDangerTitle(action: DangerAction): string {
       return "Delete this chat history?";
     case "orchestrator-session":
       return "Delete this orchestrator session?";
+    case "orchestrator-duplicates":
+      return "Delete older duplicate sessions?";
     case "orchestrator-session-restart":
       return "Start a new tmux session?";
     case "orchestrator-job":
@@ -2351,6 +2387,10 @@ function getDangerDescription(action: DangerAction): string {
       return `Remove "${action.title}" from this agent's saved conversation history.`;
     case "orchestrator-session":
       return `Remove "${action.title}" and all of its delegated work.`;
+    case "orchestrator-duplicates":
+      return `Remove ${action.duplicateSessionIds.length} older saved session${
+        action.duplicateSessionIds.length === 1 ? "" : "s"
+      } for "${action.title}".`;
     case "orchestrator-session-restart":
       return `Start a fresh tmux pane for "${action.title}" and stop the current one.`;
     case "orchestrator-job":
@@ -2374,6 +2414,13 @@ function getDangerDetails(action: DangerAction): string[] {
         `${action.delegatedJobCount} delegated job${action.delegatedJobCount === 1 ? "" : "s"} total`,
         `${action.queuedJobCount} queued task${action.queuedJobCount === 1 ? "" : "s"} will be removed`,
         `Current status: ${action.status}`,
+      ];
+    case "orchestrator-duplicates":
+      return [
+        `Keeping ${action.keptSessionId}`,
+        `${action.duplicateSessionIds.length} older duplicate session${
+          action.duplicateSessionIds.length === 1 ? "" : "s"
+        } will be deleted`,
       ];
     case "orchestrator-session-restart":
       return [
@@ -2402,6 +2449,8 @@ function getDangerWarning(action: DangerAction): string {
       return "This permanently removes the session manifest, turns, cached draft, and any offline queued retries for this chat.";
     case "orchestrator-session":
       return "This permanently removes the saved session, stops its tmux window when possible, and deletes every queued task in that session.";
+    case "orchestrator-duplicates":
+      return "This permanently removes the older duplicate sessions and their delegated job history. The currently selected session stays available.";
     case "orchestrator-session-restart":
       return "You will not be able to retrieve or view logs from the previous tmux session after starting a new one. Any running task will be stopped.";
     case "orchestrator-job":
@@ -2417,6 +2466,8 @@ function getDangerAcknowledgeLabel(action: DangerAction): string {
       return "I understand this chat history cannot be restored.";
     case "orchestrator-session":
       return "I understand this session and its queued work cannot be restored.";
+    case "orchestrator-duplicates":
+      return "I understand the older duplicate sessions cannot be restored.";
     case "orchestrator-session-restart":
       return "I understand the previous tmux session logs will no longer be available.";
     case "orchestrator-job":
@@ -2432,6 +2483,8 @@ function getDangerConfirmLabel(action: DangerAction): string {
       return "Delete chat history";
     case "orchestrator-session":
       return "Delete session";
+    case "orchestrator-duplicates":
+      return "Delete older duplicates";
     case "orchestrator-session-restart":
       return "Start new tmux session";
     case "orchestrator-job":
@@ -2445,6 +2498,7 @@ function getDangerBusyLabel(action: DangerAction): string {
   switch (action.kind) {
     case "chat-session":
     case "orchestrator-session":
+    case "orchestrator-duplicates":
     case "orchestrator-job":
     case "schedule-task":
       return "Deleting...";

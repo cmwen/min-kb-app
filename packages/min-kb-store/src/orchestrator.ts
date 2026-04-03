@@ -19,6 +19,7 @@ import {
   attachmentUploadSchema,
   copilotCustomAgentSchema,
   DEFAULT_CHAT_MODEL,
+  DEFAULT_ORCHESTRATOR_CLI_PROVIDER,
   orchestratorJobSchema,
   orchestratorScheduleSchema,
   orchestratorSessionSchema,
@@ -80,6 +81,7 @@ export interface CreateOrchestratorSessionInput {
   startedAt?: string;
   projectPath: string;
   projectPurpose: string;
+  cliProvider?: string;
   model?: string;
   availableCustomAgents?: CopilotCustomAgent[];
   selectedCustomAgentId?: string;
@@ -198,6 +200,7 @@ export async function createOrchestratorSession(
     summary: input.projectPurpose.trim(),
     projectPath: path.resolve(input.projectPath),
     projectPurpose: input.projectPurpose.trim(),
+    cliProvider: input.cliProvider?.trim() || DEFAULT_ORCHESTRATOR_CLI_PROVIDER,
     model: input.model?.trim() || DEFAULT_CHAT_MODEL,
     availableCustomAgents: copilotCustomAgentSchema
       .array()
@@ -776,6 +779,7 @@ async function writeOrchestratorSessionManifest(
     `Started: ${state.startedAt}`,
     `Project Path: ${state.projectPath}`,
     `Project Purpose: ${state.projectPurpose}`,
+    `CLI Provider: ${state.cliProvider}`,
     `Model: ${state.model}`,
     `Selected Custom Agent: ${state.selectedCustomAgentId ?? "none"}`,
     `Execution Mode: ${state.executionMode}`,

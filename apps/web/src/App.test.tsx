@@ -10,8 +10,10 @@ const apiMocks = vi.hoisted(() => ({
   listAgents: vi.fn(),
   listModels: vi.fn(),
   listSessions: vi.fn(),
+  listOrchestratorSessions: vi.fn(),
   listSkills: vi.fn(),
   getSession: vi.fn(),
+  deleteSession: vi.fn(),
   getOrchestratorCapabilities: vi.fn(),
   getScheduledTask: vi.fn(),
   analyzeMemory: vi.fn(),
@@ -113,6 +115,8 @@ beforeEach(() => {
     copilotInstalled: true,
     tmuxSessionName: "min-kb-app-orchestrator",
   });
+  apiMocks.listOrchestratorSessions.mockResolvedValue([]);
+  apiMocks.deleteSession.mockResolvedValue({ ok: true });
   apiMocks.listSessions.mockResolvedValue([
     {
       sessionId: "session-1",
@@ -418,6 +422,151 @@ describe("App memory analysis", () => {
     ).not.toBeNull();
   });
 
+  it("deletes older duplicate orchestrator sessions from the selected session", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "copilot-orchestrator",
+        selectedSessionId: "orch-session-new",
+        preferNewSession: false,
+        draftConfig: {
+          provider: "copilot",
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+    apiMocks.listAgents.mockResolvedValue([
+      {
+        id: "copilot-orchestrator",
+        kind: "orchestrator",
+        title: "Copilot orchestrator",
+        description: "Delegates tmux-backed work.",
+        combinedPrompt: "Queue work.",
+        agentPath: "/tmp/agents/copilot-orchestrator/AGENT.md",
+        defaultSoulPath: "/tmp/agents/default/SOUL.md",
+        historyRoot: "/tmp/agents/copilot-orchestrator/history",
+        workingMemoryRoot: "/tmp/agents/copilot-orchestrator/memory/working",
+        skillRoot: "/tmp/agents/copilot-orchestrator/skills",
+        skillNames: [],
+        sessionCount: 2,
+      },
+    ]);
+    apiMocks.listSessions.mockImplementation(async (agentId: string) => {
+      if (agentId !== "copilot-orchestrator") {
+        return [];
+      }
+
+      return [
+        {
+          sessionId: "orch-session-new",
+          agentId: "copilot-orchestrator",
+          title: "Ship a coordinated implementation",
+          startedAt: "2026-04-03T12:00:00Z",
+          summary: "Ship a coordinated implementation • idle",
+          manifestPath:
+            "/tmp/agents/copilot-orchestrator/history/2026-04/orch-session-new/SESSION.md",
+          turnCount: 1,
+          lastTurnAt: "2026-04-03T12:10:00Z",
+        },
+        {
+          sessionId: "orch-session-old",
+          agentId: "copilot-orchestrator",
+          title: "Ship a coordinated implementation",
+          startedAt: "2026-04-02T12:00:00Z",
+          summary: "Ship a coordinated implementation • completed",
+          manifestPath:
+            "/tmp/agents/copilot-orchestrator/history/2026-04/orch-session-old/SESSION.md",
+          turnCount: 2,
+          lastTurnAt: "2026-04-02T12:10:00Z",
+        },
+      ];
+    });
+    apiMocks.listOrchestratorSessions.mockResolvedValue([
+      {
+        sessionId: "orch-session-new",
+        agentId: "copilot-orchestrator",
+        title: "Ship a coordinated implementation",
+        startedAt: "2026-04-03T12:00:00Z",
+        updatedAt: "2026-04-03T12:10:00Z",
+        summary: "Ship a coordinated implementation",
+        projectPath: "/tmp/store",
+        projectPurpose: "Ship a coordinated implementation",
+        cliProvider: "copilot",
+        model: "gpt-5",
+        tmuxSessionName: "min-kb-app-orchestrator",
+        tmuxWindowName: "tmp-new",
+        tmuxPaneId: "%42",
+        status: "idle" as const,
+        activeJobId: undefined,
+        lastJobId: undefined,
+        availableCustomAgents: [],
+        selectedCustomAgentId: undefined,
+        executionMode: "fleet" as const,
+        sessionDirectory:
+          "/tmp/agents/copilot-orchestrator/history/2026-04/orch-session-new",
+        manifestPath:
+          "agents/copilot-orchestrator/history/2026-04/orch-session-new/SESSION.md",
+        jobs: [],
+        terminalTail: "",
+        logSize: 0,
+      },
+      {
+        sessionId: "orch-session-old",
+        agentId: "copilot-orchestrator",
+        title: "Ship a coordinated implementation",
+        startedAt: "2026-04-02T12:00:00Z",
+        updatedAt: "2026-04-02T12:10:00Z",
+        summary: "Ship a coordinated implementation",
+        projectPath: "/tmp/store/",
+        projectPurpose: "Ship a coordinated implementation ",
+        cliProvider: "copilot",
+        model: "gpt-5",
+        tmuxSessionName: "min-kb-app-orchestrator",
+        tmuxWindowName: "tmp-old",
+        tmuxPaneId: "%43",
+        status: "completed" as const,
+        activeJobId: undefined,
+        lastJobId: undefined,
+        availableCustomAgents: [],
+        selectedCustomAgentId: undefined,
+        executionMode: "fleet" as const,
+        sessionDirectory:
+          "/tmp/agents/copilot-orchestrator/history/2026-04/orch-session-old",
+        manifestPath:
+          "agents/copilot-orchestrator/history/2026-04/orch-session-old/SESSION.md",
+        jobs: [],
+        terminalTail: "",
+        logSize: 0,
+      },
+    ]);
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Remove 1 older duplicate" })
+    );
+    await user.click(
+      await screen.findByLabelText(
+        "I understand the older duplicate sessions cannot be restored."
+      )
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Delete older duplicates" })
+    );
+
+    await waitFor(() =>
+      expect(apiMocks.deleteSession).toHaveBeenCalledWith(
+        "copilot-orchestrator",
+        "orch-session-old"
+      )
+    );
+    expect(screen.queryByText("orch-session-old")).toBeNull();
+  });
+
   it("restores the previously selected session after a restart", async () => {
     localStorage.setItem(
       "min-kb-app:app-state",
@@ -505,7 +654,9 @@ describe("App memory analysis", () => {
 
     render(<App />);
 
-    const openButtons = await screen.findAllByRole("button", { name: "Open chat" });
+    const openButtons = await screen.findAllByRole("button", {
+      name: "Open chat",
+    });
     expect(openButtons).toHaveLength(1);
     expect(screen.getByText("Handle a reopened incident")).not.toBeNull();
     expect(apiMocks.getSession).not.toHaveBeenCalled();
@@ -689,9 +840,15 @@ describe("App memory analysis", () => {
 
     render(<App />);
 
-    const [openButton] = await screen.findAllByRole("button", {
-      name: "Open chat",
-    });
+    const openButton = (
+      await screen.findAllByRole("button", {
+        name: "Open chat",
+      })
+    )[0];
+    expect(openButton).toBeDefined();
+    if (!openButton) {
+      throw new Error("Expected an Open chat button.");
+    }
     await user.click(openButton);
 
     await waitFor(() => expect(apiMocks.getSession).toHaveBeenCalledTimes(1));

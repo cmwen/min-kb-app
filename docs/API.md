@@ -180,14 +180,15 @@ Returns memory entries across the whole store, or for one agent when `?agentId=<
 
 ## Orchestrator endpoints
 
-The built-in `copilot-orchestrator` agent is backed by tmux and the GitHub `copilot` CLI.
+The built-in `copilot-orchestrator` agent is backed by tmux plus either the GitHub `copilot` CLI or the Google `gemini` CLI.
 
 ### `GET /api/orchestrator/capabilities`
 
 Returns `OrchestratorCapabilities`:
 
 - whether the orchestrator is available
-- whether `tmux` and `copilot` are installed
+- whether `tmux`, `copilot`, and `gemini` are installed
+- the default orchestrator CLI provider and its provider descriptors
 - the default project path
 - recent project paths
 - the shared tmux session name
@@ -207,8 +208,10 @@ Request body: `OrchestratorSessionCreateRequest`
   "title": "Keep repo healthy",
   "projectPath": "/absolute/path/to/repo",
   "projectPurpose": "Keep the repo healthy",
+  "cliProvider": "copilot",
   "model": "gpt-5",
   "selectedCustomAgentId": "repo-maintainer",
+  "executionMode": "fleet",
   "prompt": "Run validation and fix the failing test."
 }
 ```
@@ -219,7 +222,7 @@ If `prompt` is supplied, the runtime immediately queues the first delegated job 
 
 Returns one full `OrchestratorSession`, including:
 
-- session metadata and selected model
+- session metadata, selected CLI provider, and selected model
 - discovered custom agents and the selected custom agent id
 - queued, running, and completed jobs
 - current terminal tail text and persisted log size
@@ -234,8 +237,10 @@ Request body: `OrchestratorSessionUpdateRequest`
 ```json
 {
   "title": "Repo upkeep",
+  "cliProvider": "copilot",
   "model": "gpt-5.1",
-  "selectedCustomAgentId": "repo-maintainer"
+  "selectedCustomAgentId": "repo-maintainer",
+  "executionMode": "fleet"
 }
 ```
 
@@ -243,7 +248,7 @@ Use `null` for `selectedCustomAgentId` to clear the saved custom-agent preferenc
 
 ### `POST /api/orchestrator/sessions/:sessionId/jobs`
 
-Queues a delegated Copilot CLI job.
+Queues a delegated Copilot CLI or Gemini CLI job.
 
 Request body: `OrchestratorDelegateRequest`
 
@@ -263,7 +268,7 @@ Request body: `OrchestratorDelegateRequest`
 Notes:
 
 - `prompt` may be empty when the delegated job is driven entirely by an attachment
-- attachments are stored under the delegation directory and exposed to the Copilot CLI from disk
+- attachments are stored under the delegation directory and exposed to the selected CLI from disk
 - the runtime estimates premium request usage for tmux-backed orchestrator jobs from model metadata
 
 ### `POST /api/orchestrator/sessions/:sessionId/input`

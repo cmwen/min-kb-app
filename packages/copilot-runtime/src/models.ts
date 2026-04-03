@@ -29,8 +29,21 @@ export const LM_STUDIO_RUNTIME_PROVIDER = {
   },
 } satisfies ChatProviderDescriptor;
 
+export const GEMINI_RUNTIME_PROVIDER = {
+  id: "gemini",
+  displayName: "Gemini SDK",
+  description:
+    "Uses Google's official Gemini SDK with prompt-backed skills and server-side API credentials.",
+  capabilities: {
+    supportsReasoningEffort: false,
+    supportsSkills: true,
+    supportsMcpServers: false,
+  },
+} satisfies ChatProviderDescriptor;
+
 export const RUNTIME_PROVIDERS: ChatProviderDescriptor[] = [
   COPILOT_RUNTIME_PROVIDER,
+  GEMINI_RUNTIME_PROVIDER,
   LM_STUDIO_RUNTIME_PROVIDER,
 ];
 
@@ -178,11 +191,44 @@ export const FALLBACK_MODELS: ModelDescriptor[] = [
     premiumRequestMultiplier: 0.33,
     supportedReasoningEfforts: [],
   },
+  {
+    id: "gemini-3-flash-preview",
+    displayName: "Gemini 3 Flash (Preview)",
+    runtimeProvider: GEMINI_RUNTIME_PROVIDER.id,
+    provider: "Google",
+    supportedReasoningEfforts: [],
+  },
+  {
+    id: "gemini-3-pro-preview",
+    displayName: "Gemini 3 Pro (Preview)",
+    runtimeProvider: GEMINI_RUNTIME_PROVIDER.id,
+    provider: "Google",
+    supportedReasoningEfforts: [],
+  },
+  {
+    id: "gemini-2.5-flash",
+    displayName: "Gemini 2.5 Flash",
+    runtimeProvider: GEMINI_RUNTIME_PROVIDER.id,
+    provider: "Google",
+    supportedReasoningEfforts: [],
+  },
+  {
+    id: "gemini-2.5-pro",
+    displayName: "Gemini 2.5 Pro",
+    runtimeProvider: GEMINI_RUNTIME_PROVIDER.id,
+    provider: "Google",
+    supportedReasoningEfforts: [],
+  },
 ];
 
 interface LmStudioModelInfo {
   id: string;
   owned_by?: string;
+}
+
+interface GeminiModelInfo {
+  name?: string;
+  displayName?: string;
 }
 
 export function mapModelInfoToDescriptor(
@@ -211,6 +257,23 @@ export function mapLmStudioModelToDescriptor(
       model.owned_by && model.owned_by !== "organization-owner"
         ? model.owned_by
         : undefined,
+    supportedReasoningEfforts: [],
+  };
+}
+
+export function mapGeminiModelToDescriptor(
+  model: GeminiModelInfo
+): ModelDescriptor | undefined {
+  const normalizedId = normalizeGeminiModelName(model.name);
+  if (!normalizedId) {
+    return undefined;
+  }
+
+  return {
+    id: normalizedId,
+    displayName: model.displayName?.trim() || normalizedId,
+    runtimeProvider: GEMINI_RUNTIME_PROVIDER.id,
+    provider: "Google",
     supportedReasoningEfforts: [],
   };
 }
@@ -255,8 +318,7 @@ export function normalizeConfigForModel(
   }
 
   if (
-    !selectedModel ||
-    !selectedModel.supportedReasoningEfforts.includes(
+    !selectedModel?.supportedReasoningEfforts.includes(
       normalizedConfig.reasoningEffort
     )
   ) {
@@ -365,4 +427,29 @@ function compareModelDescriptors(
   }
 
   return left.displayName.localeCompare(right.displayName);
+}
+
+function normalizeGeminiModelName(
+  name: string | undefined
+): string | undefined {
+  const trimmed = name?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith("models/")) {
+    return trimmed.slice("models/".length);
+  }
+
+  if (trimmed.startsWith("publishers/")) {
+    const parts = trimmed.split("/");
+    return parts.at(-1);
+  }
+
+  if (trimmed.startsWith("projects/")) {
+    const parts = trimmed.split("/");
+    return parts.at(-1);
+  }
+
+  return trimmed;
 }

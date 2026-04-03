@@ -97,8 +97,13 @@ export function createProgram(): Command {
     .option("-m, --message <message>", "Send a single message")
     .option(
       "--model <model>",
-      "Model to request from Copilot",
+      "Model to request from the selected runtime provider",
       defaultChatModel
+    )
+    .option(
+      "--provider <provider>",
+      "Chat runtime provider (for example: copilot or gemini)",
+      "copilot"
     )
     .action(async (agentId: string, options: ChatOptions, command: Command) => {
       const runtimeUrl = getRuntimeUrl(command);
@@ -108,7 +113,7 @@ export function createProgram(): Command {
           title: options.title,
           prompt: options.message,
           config: {
-            provider: "copilot",
+            provider: options.provider,
             model: options.model,
           },
         });
@@ -138,13 +143,18 @@ export function createProgram(): Command {
     .option("-t, --title <title>", "Title to use when creating a new session")
     .option(
       "--model <model>",
-      "Model to request from Copilot",
+      "Model to request from the selected CLI provider",
       defaultChatModel
+    )
+    .option(
+      "--provider <provider>",
+      "CLI provider for delegated jobs (copilot or gemini)",
+      "copilot"
     )
     .option("--agent <agentId>", "Copilot custom agent ID to use")
     .option(
       "--execution-mode <mode>",
-      "Execution mode for Copilot delegated jobs (standard or fleet)",
+      "Execution mode for delegated jobs (standard or fleet; fleet is Copilot-only)",
       "standard"
     )
     .option("-w, --wait", "Wait for the delegated job to finish")
@@ -211,6 +221,7 @@ interface ChatOptions {
   title?: string;
   message?: string;
   model: string;
+  provider: string;
 }
 
 interface OrchestrateOptions {
@@ -219,6 +230,7 @@ interface OrchestrateOptions {
   projectPurpose?: string;
   title?: string;
   model: string;
+  provider: string;
   agent?: string;
   executionMode: string;
   wait?: boolean;
@@ -250,7 +262,7 @@ async function runInteractiveChat(
       title,
       prompt,
       config: {
-        provider: "copilot",
+        provider: options.provider,
         model: options.model,
       },
     });
@@ -312,6 +324,7 @@ async function queueOrchestratorJob(
     title: options.title,
     projectPath: options.projectPath,
     projectPurpose: options.projectPurpose,
+    cliProvider: options.provider,
     model: options.model,
     selectedCustomAgentId: options.agent ?? null,
     executionMode: parseExecutionMode(options.executionMode),

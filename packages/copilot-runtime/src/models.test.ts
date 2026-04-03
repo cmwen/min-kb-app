@@ -293,5 +293,15 @@ describe("mergeModelCatalogs", () => {
       provider: "OpenAI",
       premiumRequestMultiplier: 0.33,
     });
+    expect(
+      FALLBACK_MODELS.filter((model) => model.runtimeProvider === "gemini").map(
+        (model) => model.id
+      )
+    ).toEqual([
+      "gemini-3-flash-preview",
+      "gemini-3-pro-preview",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+    ]);
   });
 });

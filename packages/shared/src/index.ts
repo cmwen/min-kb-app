@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const DEFAULT_CHAT_MODEL = "gpt-5-mini";
 export const DEFAULT_CHAT_PROVIDER = "copilot";
+export const DEFAULT_ORCHESTRATOR_CLI_PROVIDER = "copilot";
 
 export const chatProviderCapabilitiesSchema = z.object({
   supportsReasoningEffort: z.boolean().default(false),
@@ -20,6 +21,24 @@ export const chatProviderDescriptorSchema = z.object({
 });
 export type ChatProviderDescriptor = z.infer<
   typeof chatProviderDescriptorSchema
+>;
+
+export const orchestratorCliProviderCapabilitiesSchema = z.object({
+  supportsCustomAgents: z.boolean().default(false),
+  supportsExecutionMode: z.boolean().default(false),
+});
+export type OrchestratorCliProviderCapabilities = z.infer<
+  typeof orchestratorCliProviderCapabilitiesSchema
+>;
+
+export const orchestratorCliProviderDescriptorSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().optional(),
+  capabilities: orchestratorCliProviderCapabilitiesSchema,
+});
+export type OrchestratorCliProviderDescriptor = z.infer<
+  typeof orchestratorCliProviderDescriptorSchema
 >;
 
 export const reasoningEffortSchema = z.enum(["low", "medium", "high", "xhigh"]);
@@ -418,6 +437,7 @@ export const orchestratorSessionSummarySchema = z.object({
   summary: z.string(),
   projectPath: z.string().min(1),
   projectPurpose: z.string().min(1),
+  cliProvider: z.string().min(1).optional(),
   model: z.string().min(1).default(DEFAULT_CHAT_MODEL),
   tmuxSessionName: z.string().min(1),
   tmuxWindowName: z.string().min(1),
@@ -427,7 +447,7 @@ export const orchestratorSessionSummarySchema = z.object({
   lastJobId: z.string().min(1).optional(),
   availableCustomAgents: z.array(copilotCustomAgentSchema).default([]),
   selectedCustomAgentId: z.string().min(1).optional(),
-  executionMode: orchestratorExecutionModeSchema.default("standard"),
+  executionMode: orchestratorExecutionModeSchema.optional(),
   premiumUsage: premiumUsageTotalsSchema.optional(),
   sessionDirectory: z.string().min(1),
   manifestPath: z.string().min(1),
@@ -450,6 +470,9 @@ export const orchestratorCapabilitiesSchema = z.object({
   recentProjectPaths: z.array(z.string().min(1)).default([]),
   tmuxInstalled: z.boolean(),
   copilotInstalled: z.boolean(),
+  geminiInstalled: z.boolean().optional(),
+  defaultCliProvider: z.string().min(1).optional(),
+  cliProviders: z.array(orchestratorCliProviderDescriptorSchema).optional(),
   tmuxSessionName: z.string().min(1),
   emailDeliveryAvailable: z.boolean().optional(),
   emailFromAddress: z.string().email().optional(),
@@ -671,9 +694,10 @@ export const orchestratorSessionCreateSchema = z.object({
   title: z.string().min(1).optional(),
   projectPath: z.string().min(1),
   projectPurpose: z.string().min(1),
+  cliProvider: z.string().min(1).optional(),
   model: z.string().min(1).default(DEFAULT_CHAT_MODEL),
   selectedCustomAgentId: z.string().trim().min(1).nullable().optional(),
-  executionMode: orchestratorExecutionModeSchema.default("standard"),
+  executionMode: orchestratorExecutionModeSchema.optional(),
   prompt: z.string().min(1).optional(),
 });
 export type OrchestratorSessionCreateRequest = z.infer<
@@ -682,9 +706,10 @@ export type OrchestratorSessionCreateRequest = z.infer<
 
 export const orchestratorSessionUpdateSchema = z.object({
   title: z.string().trim().min(1),
+  cliProvider: z.string().trim().min(1).optional(),
   model: z.string().trim().min(1),
   selectedCustomAgentId: z.string().trim().min(1).nullable().optional(),
-  executionMode: orchestratorExecutionModeSchema.default("standard"),
+  executionMode: orchestratorExecutionModeSchema.optional(),
 });
 export type OrchestratorSessionUpdateRequest = z.infer<
   typeof orchestratorSessionUpdateSchema

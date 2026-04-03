@@ -52,8 +52,7 @@ export function normalizeConfigForModel(
   }
 
   if (
-    !selectedModel ||
-    !selectedModel.supportedReasoningEfforts.includes(
+    !selectedModel?.supportedReasoningEfforts.includes(
       normalizedConfig.reasoningEffort
     )
   ) {

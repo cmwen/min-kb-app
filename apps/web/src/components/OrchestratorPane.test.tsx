@@ -23,6 +23,19 @@ describe("OrchestratorPane", () => {
           recentProjectPaths: ["/tmp/another-project"],
           tmuxInstalled: true,
           copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
           tmuxSessionName: "min-kb-app-orchestrator",
         }}
         models={[
@@ -76,10 +89,138 @@ describe("OrchestratorPane", () => {
       title: undefined,
       projectPath: "/tmp/project",
       projectPurpose: "Repair the login redirect",
+      cliProvider: "copilot",
       model: "claude-sonnet-4.6",
       executionMode: "standard",
       prompt: "Investigate the broken redirect flow.",
     });
+  });
+
+  it("surfaces a matching session in the create form and can open it", async () => {
+    const user = userEvent.setup();
+    const onSelectSession = vi.fn();
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project/",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        allSessions={[
+          {
+            sessionId: "older-match",
+            agentId: "copilot-orchestrator",
+            title: "Ship a coordinated implementation",
+            startedAt: "2026-04-02T12:00:00Z",
+            updatedAt: "2026-04-02T12:10:00Z",
+            summary: "Ship a coordinated implementation",
+            projectPath: "/tmp/project",
+            projectPurpose: "Ship a coordinated implementation",
+            cliProvider: "copilot",
+            model: "gpt-5",
+            tmuxSessionName: "min-kb-app-orchestrator",
+            tmuxWindowName: "tmp-old",
+            tmuxPaneId: "%41",
+            status: "completed",
+            activeJobId: undefined,
+            lastJobId: undefined,
+            availableCustomAgents: [],
+            selectedCustomAgentId: undefined,
+            executionMode: "fleet",
+            sessionDirectory: "/tmp/older-match",
+            manifestPath:
+              "agents/copilot-orchestrator/history/2026-04/older-match/SESSION.md",
+            jobs: [],
+            terminalTail: "",
+            logSize: 0,
+          },
+          {
+            sessionId: "latest-match",
+            agentId: "copilot-orchestrator",
+            title: "Ship a coordinated implementation",
+            startedAt: "2026-04-03T12:00:00Z",
+            updatedAt: "2026-04-03T12:10:00Z",
+            summary: "Ship a coordinated implementation",
+            projectPath: "/tmp/project/",
+            projectPurpose: "Ship a coordinated implementation ",
+            cliProvider: "copilot",
+            model: "gpt-5",
+            tmuxSessionName: "min-kb-app-orchestrator",
+            tmuxWindowName: "tmp-new",
+            tmuxPaneId: "%42",
+            status: "idle",
+            activeJobId: undefined,
+            lastJobId: undefined,
+            availableCustomAgents: [],
+            selectedCustomAgentId: undefined,
+            executionMode: "fleet",
+            sessionDirectory: "/tmp/latest-match",
+            manifestPath:
+              "agents/copilot-orchestrator/history/2026-04/latest-match/SESSION.md",
+            jobs: [],
+            terminalTail: "",
+            logSize: 0,
+          },
+        ]}
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onSelectSession={onSelectSession}
+        onDeleteOlderDuplicates={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await user.type(
+      screen.getByLabelText("Project purpose"),
+      "Ship a coordinated implementation"
+    );
+
+    expect(
+      screen.getByText(/A matching orchestrator session already exists/i)
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open latest existing session" })
+    );
+
+    expect(onSelectSession).toHaveBeenCalledWith("latest-match");
   });
 
   it("lets users update the saved session title and model", async () => {
@@ -101,6 +242,19 @@ describe("OrchestratorPane", () => {
           recentProjectPaths: ["/tmp/another-project"],
           tmuxInstalled: true,
           copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
           tmuxSessionName: "min-kb-app-orchestrator",
         }}
         session={{
@@ -167,12 +321,15 @@ describe("OrchestratorPane", () => {
     await user.click(screen.getByRole("button", { name: /session settings/i }));
     await user.clear(screen.getByLabelText("Project name"));
     await user.type(screen.getByLabelText("Project name"), "Payments platform");
-    const [modelSelect] = screen.getAllByRole("combobox");
-    await user.selectOptions(modelSelect ?? document.body, "claude-sonnet-4.6");
+    await user.selectOptions(
+      screen.getAllByRole("combobox")[1] ?? document.body,
+      "claude-sonnet-4.6"
+    );
     await user.click(screen.getByRole("button", { name: "Save details" }));
 
     expect(onUpdateSession).toHaveBeenCalledWith({
       title: "Payments platform",
+      cliProvider: "copilot",
       model: "claude-sonnet-4.6",
       selectedCustomAgentId: null,
       executionMode: "standard",
@@ -198,6 +355,19 @@ describe("OrchestratorPane", () => {
           recentProjectPaths: ["/tmp/another-project"],
           tmuxInstalled: true,
           copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
           tmuxSessionName: "min-kb-app-orchestrator",
         }}
         session={{
@@ -260,16 +430,144 @@ describe("OrchestratorPane", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /session settings/i }));
-    const [, customAgentSelect] = screen.getAllByRole("combobox");
-    await user.selectOptions(customAgentSelect ?? document.body, "reviewer");
+    await user.selectOptions(
+      screen.getAllByRole("combobox")[2] ?? document.body,
+      "reviewer"
+    );
     await user.click(screen.getByRole("button", { name: "Save details" }));
 
     expect(onUpdateSession).toHaveBeenCalledWith({
       title: "Repo support",
+      cliProvider: "copilot",
       model: "gpt-5",
       selectedCustomAgentId: "reviewer",
       executionMode: "standard",
     });
+  });
+
+  it("offers to remove older duplicate sessions from the latest saved session", async () => {
+    const user = userEvent.setup();
+    const onDeleteOlderDuplicates = vi.fn();
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "latest-match",
+          agentId: "copilot-orchestrator",
+          title: "Ship a coordinated implementation",
+          startedAt: "2026-04-03T12:00:00Z",
+          updatedAt: "2026-04-03T12:10:00Z",
+          summary: "Ship a coordinated implementation",
+          projectPath: "/tmp/project",
+          projectPurpose: "Ship a coordinated implementation",
+          cliProvider: "copilot",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "tmp-new",
+          tmuxPaneId: "%42",
+          status: "idle",
+          activeJobId: undefined,
+          lastJobId: undefined,
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          executionMode: "fleet",
+          sessionDirectory: "/tmp/latest-match",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-04/latest-match/SESSION.md",
+          jobs: [],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        allSessions={[
+          {
+            sessionId: "older-match",
+            agentId: "copilot-orchestrator",
+            title: "Ship a coordinated implementation",
+            startedAt: "2026-04-02T12:00:00Z",
+            updatedAt: "2026-04-02T12:10:00Z",
+            summary: "Ship a coordinated implementation",
+            projectPath: "/tmp/project/",
+            projectPurpose: "Ship a coordinated implementation ",
+            cliProvider: "copilot",
+            model: "gpt-5",
+            tmuxSessionName: "min-kb-app-orchestrator",
+            tmuxWindowName: "tmp-old",
+            tmuxPaneId: "%41",
+            status: "completed",
+            activeJobId: undefined,
+            lastJobId: undefined,
+            availableCustomAgents: [],
+            selectedCustomAgentId: undefined,
+            executionMode: "fleet",
+            sessionDirectory: "/tmp/older-match",
+            manifestPath:
+              "agents/copilot-orchestrator/history/2026-04/older-match/SESSION.md",
+            jobs: [],
+            terminalTail: "",
+            logSize: 0,
+          },
+        ]}
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onSelectSession={() => undefined}
+        onDeleteOlderDuplicates={onDeleteOlderDuplicates}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove 1 older duplicate" })
+    );
+
+    expect(onDeleteOlderDuplicates).toHaveBeenCalledWith(["older-match"]);
   });
 
   it("lets users switch a session to fleet mode", async () => {
@@ -291,6 +589,19 @@ describe("OrchestratorPane", () => {
           recentProjectPaths: ["/tmp/another-project"],
           tmuxInstalled: true,
           copilotInstalled: true,
+          geminiInstalled: false,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
           tmuxSessionName: "min-kb-app-orchestrator",
         }}
         session={{
@@ -346,12 +657,15 @@ describe("OrchestratorPane", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /session settings/i }));
-    const selects = screen.getAllByRole("combobox");
-    await user.selectOptions(selects[2] ?? document.body, "fleet");
+    await user.selectOptions(
+      screen.getAllByRole("combobox")[3] ?? document.body,
+      "fleet"
+    );
     await user.click(screen.getByRole("button", { name: "Save details" }));
 
     expect(onUpdateSession).toHaveBeenCalledWith({
       title: "Repo support",
+      cliProvider: "copilot",
       model: "gpt-5",
       selectedCustomAgentId: null,
       executionMode: "fleet",

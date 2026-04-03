@@ -5,6 +5,11 @@ import {
   type SessionEvent,
 } from "@github/copilot-sdk";
 import {
+  type GenerateContentResponse,
+  GoogleGenAI,
+  type GoogleGenAIOptions,
+} from "@google/genai";
+import {
   getAgentById,
   listAgents,
   listSkillsForAgent,
@@ -29,7 +34,9 @@ import {
 import {
   COPILOT_RUNTIME_PROVIDER,
   FALLBACK_MODELS,
+  GEMINI_RUNTIME_PROVIDER,
   LM_STUDIO_RUNTIME_PROVIDER,
+  mapGeminiModelToDescriptor,
   mapLmStudioModelToDescriptor,
   mapModelInfoToDescriptor,
   mergeModelCatalogs,
@@ -112,6 +119,12 @@ export class ChatRuntimeService {
   constructor(
     workspace: MinKbWorkspace,
     options?: {
+      geminiApiKey?: string;
+      geminiApiVersion?: string;
+      geminiLocation?: string;
+      geminiModel?: string;
+      geminiProject?: string;
+      geminiUseVertexAi?: boolean;
       lmStudioBaseUrl?: string;
       lmStudioModel?: string;
     }
@@ -119,6 +132,7 @@ export class ChatRuntimeService {
     this.workspace = workspace;
     this.providers = [
       new CopilotRuntimeProvider(workspace),
+      new GeminiRuntimeProvider(workspace, options),
       new LmStudioRuntimeProvider(workspace, options),
     ];
     this.providersById = new Map(
@@ -520,6 +534,257 @@ class CopilotRuntimeProvider implements RuntimeProvider {
   }
 }
 
+class GeminiRuntimeProvider implements RuntimeProvider {
+  readonly descriptor = GEMINI_RUNTIME_PROVIDER;
+  private client: GoogleGenAI | undefined;
+  private readonly clientOptions: GoogleGenAIOptions;
+  private readonly clientConfigured: boolean;
+  private readonly configuredModel: string | undefined;
+
+  constructor(
+    private readonly workspace: MinKbWorkspace,
+    options?: {
+      geminiApiKey?: string;
+      geminiApiVersion?: string;
+      geminiLocation?: string;
+      geminiModel?: string;
+      geminiProject?: string;
+      geminiUseVertexAi?: boolean;
+    }
+  ) {
+    this.clientOptions = buildGeminiClientOptions({
+      apiKey: options?.geminiApiKey,
+      apiVersion: options?.geminiApiVersion,
+      location: options?.geminiLocation,
+      project: options?.geminiProject,
+      vertexai: options?.geminiUseVertexAi,
+    });
+    this.clientConfigured = Boolean(
+      this.clientOptions.apiKey || this.clientOptions.vertexai
+    );
+    this.configuredModel =
+      options?.geminiModel ?? process.env.MIN_KB_APP_GEMINI_MODEL;
+  }
+
+  async listModels(): Promise<ModelDescriptor[]> {
+    const fallbackModels = [
+      ...FALLBACK_MODELS.filter(
+        (model) => model.runtimeProvider === this.descriptor.id
+      ),
+      ...(this.configuredModel
+        ? [
+            {
+              id: this.configuredModel,
+              displayName: this.configuredModel,
+              runtimeProvider: this.descriptor.id,
+              provider: "Google",
+              supportedReasoningEfforts: [],
+            } satisfies ModelDescriptor,
+          ]
+        : []),
+    ];
+
+    if (!this.clientConfigured) {
+      return fallbackModels;
+    }
+
+    try {
+      const pager = await this.getClient().models.list();
+      const liveModels: ModelDescriptor[] = [];
+      for await (const model of pager) {
+        if (
+          Array.isArray(model.supportedActions) &&
+          !model.supportedActions.includes("generateContent")
+        ) {
+          continue;
+        }
+        const descriptor = mapGeminiModelToDescriptor(model);
+        if (descriptor) {
+          liveModels.push(descriptor);
+        }
+      }
+      return mergeModelCatalogs(liveModels, fallbackModels);
+    } catch (error) {
+      console.warn("Gemini model discovery failed.", error);
+      return fallbackModels;
+    }
+  }
+
+  async stop(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  async sendMessage(
+    input: NormalizedSendRuntimeMessageInput
+  ): Promise<SendRuntimeMessageResult> {
+    if (!this.clientConfigured) {
+      throw new Error(
+        "Gemini runtime is not configured. Set MIN_KB_APP_GEMINI_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY, or enable Vertex AI configuration."
+      );
+    }
+    const startedAt = Date.now();
+    const enabledSkills = await loadEnabledSkillDocumentsForAgent(
+      this.workspace,
+      input.agentId,
+      input.config.disabledSkills
+    );
+    const sessionDiagnostics =
+      buildPromptBackedSessionDiagnostics(enabledSkills);
+    const response = await this.getClient().models.generateContent({
+      model: input.config.model,
+      contents: buildGeminiContents({
+        conversation: input.conversation ?? [],
+        prompt: input.prompt,
+      }),
+      config: {
+        systemInstruction: buildGeminiSystemInstruction(
+          input.agent?.combinedPrompt,
+          enabledSkills
+        ),
+      },
+    });
+    const assistantText = response.text?.trim();
+    if (!assistantText) {
+      throw new Error("Gemini returned no assistant message content.");
+    }
+
+    return {
+      assistantText,
+      llmStats: buildGeminiUsageStats(
+        response,
+        input.config.model,
+        Date.now() - startedAt
+      ),
+      sessionDiagnostics,
+    };
+  }
+
+  private getClient(): GoogleGenAI {
+    this.client ??= new GoogleGenAI(this.clientOptions);
+    return this.client;
+  }
+}
+
+function buildGeminiClientOptions(input: {
+  apiKey?: string;
+  apiVersion?: string;
+  location?: string;
+  project?: string;
+  vertexai?: boolean;
+}): GoogleGenAIOptions {
+  const vertexai =
+    input.vertexai ??
+    readBooleanEnv("MIN_KB_APP_GEMINI_USE_VERTEXAI") ??
+    readBooleanEnv("GOOGLE_GENAI_USE_VERTEXAI");
+  const apiKey =
+    input.apiKey ??
+    process.env.MIN_KB_APP_GEMINI_API_KEY ??
+    process.env.GEMINI_API_KEY ??
+    process.env.GOOGLE_API_KEY;
+  const project =
+    input.project ??
+    process.env.MIN_KB_APP_GEMINI_PROJECT ??
+    process.env.GOOGLE_CLOUD_PROJECT;
+  const location =
+    input.location ??
+    process.env.MIN_KB_APP_GEMINI_LOCATION ??
+    process.env.GOOGLE_CLOUD_LOCATION;
+  const apiVersion =
+    input.apiVersion ?? process.env.MIN_KB_APP_GEMINI_API_VERSION;
+
+  return {
+    ...(vertexai === undefined ? {} : { vertexai }),
+    ...(apiKey ? { apiKey } : {}),
+    ...(project ? { project } : {}),
+    ...(location ? { location } : {}),
+    ...(apiVersion ? { apiVersion } : {}),
+  };
+}
+
+function buildGeminiContents(input: {
+  conversation: ConversationTurn[];
+  prompt: string;
+}) {
+  const history = input.conversation
+    .map((turn) => ({
+      role: mapSenderToGeminiRole(turn.sender),
+      parts: [{ text: turn.bodyMarkdown.trim() }],
+    }))
+    .filter((turn) => (turn.parts[0]?.text ?? "").length > 0);
+  const normalizedPrompt = input.prompt.trim();
+  if (normalizedPrompt.length > 0) {
+    history.push({
+      role: "user",
+      parts: [{ text: normalizedPrompt }],
+    });
+  }
+  return history;
+}
+
+function buildGeminiSystemInstruction(
+  agentPrompt: string | undefined,
+  enabledSkills: Awaited<ReturnType<typeof loadEnabledSkillDocumentsForAgent>>
+): string | undefined {
+  const sections = [
+    "You are running through the Gemini SDK inside min-kb-app.",
+    "Do not claim to have used MCP servers, tools, or external resources unless their results already appear in the conversation.",
+    enabledSkills.length > 0
+      ? [
+          "Skills selected for this run are provided below as live operating instructions.",
+          "Apply them when they are relevant instead of describing them as unavailable metadata.",
+          "If a skill calls for tools, commands, MCP servers, or external systems, only rely on results already present in the conversation and clearly state when something still needs to be run outside this Gemini response.",
+        ].join(" ")
+      : undefined,
+    agentPrompt?.trim()
+      ? `## Agent instructions\n\n${agentPrompt.trim()}`
+      : undefined,
+    enabledSkills.length > 0
+      ? [
+          "## Enabled skills",
+          ...enabledSkills.map(
+            (skill) =>
+              `### ${skill.name}\n- Scope: ${skill.scope}\n- Description: ${skill.description}\n\n${skill.content.trim()}`
+          ),
+        ].join("\n\n")
+      : undefined,
+  ].filter((section): section is string => Boolean(section?.trim()));
+
+  if (sections.length === 0) {
+    return undefined;
+  }
+
+  return sections.join("\n\n");
+}
+
+function mapSenderToGeminiRole(sender: TurnSender): "user" | "model" {
+  switch (sender) {
+    case "assistant":
+    case "tool":
+      return "model";
+    default:
+      return "user";
+  }
+}
+
+function buildGeminiUsageStats(
+  response: GenerateContentResponse,
+  modelId: string,
+  durationMs: number
+): LlmRequestStats {
+  return llmRequestStatsSchema.parse({
+    recordedAt: new Date().toISOString(),
+    model: response.modelVersion ?? modelId,
+    requestCount: 1,
+    premiumRequestUnits: 0,
+    inputTokens: response.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: response.usageMetadata?.candidatesTokenCount ?? 0,
+    cacheReadTokens: response.usageMetadata?.cachedContentTokenCount ?? 0,
+    cacheWriteTokens: 0,
+    cost: 0,
+    durationMs,
+  });
+}
+
 class LmStudioRuntimeProvider implements RuntimeProvider {
   readonly descriptor = LM_STUDIO_RUNTIME_PROVIDER;
   private readonly baseUrl: string;
@@ -885,6 +1150,20 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
   }
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readBooleanEnv(name: string): boolean | undefined {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return undefined;
+  }
+  if (["1", "true", "yes", "on"].includes(raw)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(raw)) {
+    return false;
+  }
+  return undefined;
 }
 
 function createSessionDiagnosticsCollector() {

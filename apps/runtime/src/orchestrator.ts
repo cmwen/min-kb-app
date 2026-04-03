@@ -39,10 +39,12 @@ import {
   type ChatSessionSummary,
   DEFAULT_CHAT_MODEL,
   DEFAULT_CHAT_PROVIDER,
+  DEFAULT_ORCHESTRATOR_CLI_PROVIDER,
   type ModelDescriptor,
   type OrchestratorCapabilities,
-  type OrchestratorExecutionMode,
+  type OrchestratorCliProviderDescriptor,
   type OrchestratorDelegateRequest,
+  type OrchestratorExecutionMode,
   type OrchestratorJob,
   type OrchestratorSchedule,
   type OrchestratorScheduleCreateRequest,
@@ -66,6 +68,33 @@ const ORCHESTRATOR_PROMPT_FILENAME = "prompt.txt";
 const ORCHESTRATOR_SCRIPT_FILENAME = "run.sh";
 export const DEFAULT_MEMORY_ANALYSIS_MODEL = "gpt-5-mini";
 
+const COPILOT_CLI_PROVIDER = {
+  id: "copilot",
+  displayName: "GitHub Copilot CLI",
+  description:
+    "Runs delegated jobs through the GitHub Copilot CLI inside the tmux workspace.",
+  capabilities: {
+    supportsCustomAgents: true,
+    supportsExecutionMode: true,
+  },
+} satisfies OrchestratorCliProviderDescriptor;
+
+const GEMINI_CLI_PROVIDER = {
+  id: "gemini",
+  displayName: "Gemini CLI",
+  description:
+    "Runs delegated jobs through the Gemini CLI inside the tmux workspace.",
+  capabilities: {
+    supportsCustomAgents: false,
+    supportsExecutionMode: false,
+  },
+} satisfies OrchestratorCliProviderDescriptor;
+
+const ORCHESTRATOR_CLI_PROVIDERS = [
+  COPILOT_CLI_PROVIDER,
+  GEMINI_CLI_PROVIDER,
+] as const;
+
 interface ReconciledStatus {
   status: OrchestratorSession["status"];
   activeJobId?: string;
@@ -83,22 +112,31 @@ export class TmuxOrchestratorService {
   ) {}
 
   async getCapabilities(): Promise<OrchestratorCapabilities> {
-    const [tmuxInstalled, copilotInstalled, sessions] = await Promise.all([
-      this.commandExists("tmux"),
-      this.commandExists("copilot"),
-      listOrchestratorSessions(this.workspace),
-    ]);
+    const [tmuxInstalled, copilotInstalled, geminiInstalled, sessions] =
+      await Promise.all([
+        this.commandExists("tmux"),
+        this.commandExists("copilot"),
+        this.commandExists("gemini"),
+        listOrchestratorSessions(this.workspace),
+      ]);
     const recentProjectPaths = [
       ...new Set(sessions.map((session) => session.projectPath)),
     ]
       .filter((projectPath) => projectPath !== this.defaultProjectPath)
       .slice(0, 8);
+    const cliProviders = ORCHESTRATOR_CLI_PROVIDERS.filter((provider) =>
+      provider.id === "copilot" ? copilotInstalled : geminiInstalled
+    );
     return orchestratorCapabilitiesSchema.parse({
-      available: tmuxInstalled && copilotInstalled,
+      available: tmuxInstalled && cliProviders.length > 0,
       defaultProjectPath: this.defaultProjectPath,
       recentProjectPaths,
       tmuxInstalled,
       copilotInstalled,
+      geminiInstalled,
+      defaultCliProvider:
+        cliProviders[0]?.id ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER,
+      cliProviders,
       tmuxSessionName: this.tmuxSessionName,
       emailDeliveryAvailable: this.isEmailDeliveryConfigured(),
       emailFromAddress: process.env.MIN_KB_APP_SMTP_FROM,
@@ -112,9 +150,9 @@ export class TmuxOrchestratorService {
     return {
       id: ORCHESTRATOR_AGENT_ID,
       kind: "orchestrator",
-      title: "Copilot Orchestrator",
+      title: "CLI Orchestrator",
       description:
-        "Maximizes project context, then delegates implementation work to Copilot custom agents inside tmux windows.",
+        "Maximizes project context, then delegates implementation work to Copilot or Gemini CLI sessions inside tmux windows.",
       combinedPrompt:
         "You are the built-in Copilot orchestrator agent. Maximize the available project context, keep delegated session state current, and route implementation work through specialized Copilot custom agents instead of doing everything in one generic run.",
       agentPath: path.join(this.workspace.agentsRoot, ORCHESTRATOR_AGENT_ID),
@@ -161,22 +199,32 @@ export class TmuxOrchestratorService {
   async createSession(
     request: OrchestratorSessionCreateRequest
   ): Promise<OrchestratorSession> {
-    await this.assertCapabilities();
+    const cliProvider = this.normalizeCliProvider(request.cliProvider);
+    await this.assertCapabilities(cliProvider);
     const projectPath = path.resolve(request.projectPath);
     const model = request.model.trim() || DEFAULT_CHAT_MODEL;
     await this.assertProjectPath(projectPath);
     const availableCustomAgents =
-      await discoverCopilotCustomAgents(projectPath);
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? await discoverCopilotCustomAgents(projectPath)
+        : [];
     const defaultCustomAgentId = getDefaultOrchestratorCustomAgentId(
       availableCustomAgents
     );
-    const selectedCustomAgentId = this.resolveSelectedCustomAgentId(
-      {
-        availableCustomAgents,
-        selectedCustomAgentId: defaultCustomAgentId,
-      },
-      request.selectedCustomAgentId
-    );
+    const selectedCustomAgentId =
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? this.resolveSelectedCustomAgentId(
+            {
+              availableCustomAgents,
+              selectedCustomAgentId: defaultCustomAgentId,
+            },
+            request.selectedCustomAgentId
+          )
+        : undefined;
+    const executionMode =
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? (request.executionMode ?? "standard")
+        : "standard";
     const title =
       request.title?.trim() ||
       request.projectPurpose.trim() ||
@@ -202,10 +250,11 @@ export class TmuxOrchestratorService {
       startedAt,
       projectPath,
       projectPurpose: request.projectPurpose,
+      cliProvider,
       model,
       availableCustomAgents,
       selectedCustomAgentId,
-      executionMode: request.executionMode,
+      executionMode,
       tmuxSessionName: this.tmuxSessionName,
       tmuxWindowName,
       tmuxPaneId: paneId,
@@ -223,12 +272,24 @@ export class TmuxOrchestratorService {
   ): Promise<OrchestratorSession> {
     const session = await this.getSession(sessionId);
     const title = request.title;
+    const cliProvider = this.normalizeCliProvider(request.cliProvider);
     const model = request.model;
-    const selectedCustomAgentId = this.resolveSelectedCustomAgentId(
-      session,
-      request.selectedCustomAgentId
-    );
-    const executionMode = request.executionMode;
+    await this.assertCapabilities(cliProvider);
+    const availableCustomAgents =
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? session.availableCustomAgents
+        : [];
+    const selectedCustomAgentId =
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? this.resolveSelectedCustomAgentId(
+            session,
+            request.selectedCustomAgentId
+          )
+        : undefined;
+    const executionMode =
+      cliProvider === COPILOT_CLI_PROVIDER.id
+        ? (request.executionMode ?? session.executionMode ?? "standard")
+        : "standard";
     const tmuxWindowName = buildOrchestratorWindowName(
       title,
       session.projectPath,
@@ -236,9 +297,11 @@ export class TmuxOrchestratorService {
     );
     const hasChanges =
       title !== session.title ||
+      cliProvider !==
+        (session.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER) ||
       model !== session.model ||
       selectedCustomAgentId !== session.selectedCustomAgentId ||
-      executionMode !== session.executionMode ||
+      executionMode !== (session.executionMode ?? "standard") ||
       tmuxWindowName !== session.tmuxWindowName;
     if (!hasChanges) {
       return session;
@@ -258,7 +321,9 @@ export class TmuxOrchestratorService {
 
     await updateOrchestratorSession(this.workspace, sessionId, {
       title,
+      cliProvider,
       model,
+      availableCustomAgents,
       selectedCustomAgentId,
       executionMode,
       tmuxWindowName,
@@ -688,14 +753,29 @@ export class TmuxOrchestratorService {
     await this.runTmux(["kill-window", "-t", windowId]);
   }
 
-  private async assertCapabilities(): Promise<void> {
+  private async assertCapabilities(
+    cliProvider = DEFAULT_ORCHESTRATOR_CLI_PROVIDER
+  ): Promise<void> {
     const capabilities = await this.getCapabilities();
     if (!capabilities.tmuxInstalled) {
-      throw new Error("tmux is required for the Copilot orchestrator feature.");
-    }
-    if (!capabilities.copilotInstalled) {
       throw new Error(
-        "The `copilot` CLI is required for the Copilot orchestrator feature."
+        "tmux is required for the Copilot/Gemini orchestrator feature."
+      );
+    }
+    if (
+      cliProvider === COPILOT_CLI_PROVIDER.id &&
+      !capabilities.copilotInstalled
+    ) {
+      throw new Error(
+        "The `copilot` CLI is required for Copilot-backed orchestrator sessions."
+      );
+    }
+    if (
+      cliProvider === GEMINI_CLI_PROVIDER.id &&
+      !capabilities.geminiInstalled
+    ) {
+      throw new Error(
+        "The `gemini` CLI is required for Gemini-backed orchestrator sessions."
       );
     }
   }
@@ -728,6 +808,13 @@ export class TmuxOrchestratorService {
     if (!(await pathExists(historyRoot))) {
       await fs.mkdir(historyRoot, { recursive: true });
     }
+  }
+
+  private normalizeCliProvider(cliProvider?: string): string {
+    const normalized = cliProvider?.trim() || DEFAULT_ORCHESTRATOR_CLI_PROVIDER;
+    return normalized === GEMINI_CLI_PROVIDER.id
+      ? GEMINI_CLI_PROVIDER.id
+      : COPILOT_CLI_PROVIDER.id;
   }
 
   private async finalizeCancelledJob(
@@ -844,6 +931,7 @@ export class TmuxOrchestratorService {
       jobId: job.jobId,
       donePath,
       outputPath,
+      cliProvider: session.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER,
       model: session.model,
       prompt: effectivePrompt,
       promptPath,
@@ -1022,23 +1110,34 @@ export function buildDelegationShellScript(input: {
   jobId: string;
   donePath: string;
   outputPath: string;
+  cliProvider?: string;
   model: string;
   prompt: string;
   promptMode: "inline" | "file";
   promptPath?: string;
   projectPurpose: string;
   customAgentId?: string;
-  executionMode: OrchestratorExecutionMode;
+  executionMode?: OrchestratorExecutionMode;
   tmuxTarget: string;
 }): string {
-  const command = buildCopilotCommand({
-    model: input.model,
-    prompt: input.prompt,
-    promptMode: input.promptMode,
-    promptPath: input.promptPath,
-    projectPurpose: input.projectPurpose,
-    customAgentId: input.customAgentId,
-  });
+  const cliProvider = input.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER;
+  const command =
+    cliProvider === GEMINI_CLI_PROVIDER.id
+      ? buildGeminiCommand({
+          model: input.model,
+          prompt: input.prompt,
+          promptMode: input.promptMode,
+          promptPath: input.promptPath,
+        })
+      : buildCopilotCommand({
+          model: input.model,
+          prompt: input.prompt,
+          promptMode: input.promptMode,
+          promptPath: input.promptPath,
+          projectPurpose: input.projectPurpose,
+          customAgentId: input.customAgentId,
+          executionMode: input.executionMode ?? "standard",
+        });
   return [
     "#!/usr/bin/env bash",
     "set -u",
@@ -1090,7 +1189,7 @@ export function buildCopilotCommand(input: {
   const agentFlag = input.customAgentId
     ? ` --agent ${shellQuote(input.customAgentId)}`
     : "";
-  const promptFlag = input.executionMode === "fleet" ? "-i" : "-p";
+  const promptFlag = "-p";
   const normalizePrompt = (value: string) =>
     input.executionMode === "fleet" ? `/fleet ${value}` : value;
   if (input.promptMode === "file") {
@@ -1108,6 +1207,26 @@ export function buildCopilotCommand(input: {
   }
   return `copilot --model ${shellQuote(input.model)}${agentFlag} --yolo ${promptFlag} ${shellQuote(
     normalizePrompt(input.prompt)
+  )}`;
+}
+
+export function buildGeminiCommand(input: {
+  model: string;
+  prompt: string;
+  promptMode: "inline" | "file";
+  promptPath?: string;
+}): string {
+  if (input.promptMode === "file") {
+    if (!input.promptPath) {
+      throw new Error("Prompt file mode requires a promptPath.");
+    }
+    return `gemini --model ${shellQuote(input.model)} --yolo < ${shellQuote(
+      input.promptPath
+    )}`;
+  }
+
+  return `gemini --model ${shellQuote(input.model)} --yolo --prompt ${shellQuote(
+    input.prompt
   )}`;
 }
 

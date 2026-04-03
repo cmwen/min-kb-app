@@ -13,6 +13,7 @@ import * as RawAnsiModule from "ansi-to-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_ROOT, api } from "../api";
+import { findMatchingOrchestratorSessions } from "../orchestrator-duplicates";
 import {
   type OrchestratorScheduleDraft,
   OrchestratorScheduleModal,
@@ -24,12 +25,16 @@ interface OrchestratorPaneProps {
   session?: OrchestratorSession;
   schedules: OrchestratorSchedule[];
   models: ModelDescriptor[];
+  defaultCliProvider?: string;
   defaultModelId: string;
+  allSessions?: OrchestratorSession[];
   projectPathSuggestions: string[];
   pending: boolean;
   error?: string;
   onCreateSession: (request: OrchestratorSessionCreateRequest) => void;
   onUpdateSession: (request: OrchestratorSessionUpdateRequest) => void;
+  onSelectSession?: (sessionId: string) => void;
+  onDeleteOlderDuplicates?: (sessionIds: string[]) => void;
   onDelegate: (request: { prompt: string; attachment?: File }) => void;
   onSendInput: (input: string, submit: boolean) => void;
   onCancelJob: () => void;
@@ -56,10 +61,15 @@ type AnsiComponentProps = {
 const Ansi = resolveAnsiComponent(RawAnsiModule);
 
 export function OrchestratorPane(props: OrchestratorPaneProps) {
+  const defaultCliProvider =
+    props.defaultCliProvider ??
+    props.capabilities?.defaultCliProvider ??
+    "copilot";
   const [title, setTitle] = useState("");
   const [projectPath, setProjectPath] = useState(
     props.capabilities?.defaultProjectPath ?? ""
   );
+  const [cliProvider, setCliProvider] = useState(defaultCliProvider);
   const [modelId, setModelId] = useState(props.defaultModelId);
   const [projectPurpose, setProjectPurpose] = useState("");
   const [initialPrompt, setInitialPrompt] = useState("");
@@ -69,6 +79,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   >();
   const [terminalInput, setTerminalInput] = useState("");
   const [sessionTitle, setSessionTitle] = useState(props.session?.title ?? "");
+  const [sessionCliProvider, setSessionCliProvider] = useState(
+    props.session?.cliProvider ?? defaultCliProvider
+  );
   const [sessionModelId, setSessionModelId] = useState(
     props.session?.model ?? props.defaultModelId
   );
@@ -108,18 +121,51 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     scrollHeight: number;
   } | null>(null);
   const projectPathDatalistId = "orchestrator-project-paths";
+  const availableCliProviders = props.capabilities?.cliProviders ?? [];
+  const selectedCreateCliProvider = useMemo(
+    () =>
+      availableCliProviders.find((provider) => provider.id === cliProvider) ??
+      availableCliProviders[0],
+    [availableCliProviders, cliProvider]
+  );
+  const selectedSavedSessionCliProvider = useMemo(
+    () =>
+      availableCliProviders.find(
+        (provider) => provider.id === (props.session?.cliProvider ?? "")
+      ) ?? availableCliProviders[0],
+    [availableCliProviders, props.session?.cliProvider]
+  );
+  const selectedSessionDraftCliProvider = useMemo(
+    () =>
+      availableCliProviders.find(
+        (provider) => provider.id === sessionCliProvider
+      ) ?? availableCliProviders[0],
+    [availableCliProviders, sessionCliProvider]
+  );
   const modelOptions = useMemo(() => {
-    if (props.models.length > 0) {
-      return props.models;
+    const activeCliProvider = props.session ? sessionCliProvider : cliProvider;
+    const providerModels = props.models.filter(
+      (model) => model.runtimeProvider === activeCliProvider
+    );
+    if (providerModels.length > 0) {
+      return providerModels;
     }
     return [
       {
         id: props.session?.model ?? props.defaultModelId,
         displayName: props.session?.model ?? props.defaultModelId,
+        runtimeProvider: activeCliProvider,
         supportedReasoningEfforts: [],
       },
     ];
-  }, [props.defaultModelId, props.models, props.session?.model]);
+  }, [
+    cliProvider,
+    props.defaultModelId,
+    props.models,
+    props.session,
+    props.session?.model,
+    sessionCliProvider,
+  ]);
   const selectedNewSessionModel = useMemo(
     () => modelOptions.find((model) => model.id === modelId),
     [modelId, modelOptions]
@@ -199,6 +245,50 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const scheduleSectionId = props.session
     ? `${props.session.sessionId}-schedules`
     : "orchestrator-schedules";
+  const duplicateComparisonSessions = useMemo(
+    () =>
+      props.session
+        ? [
+            props.session,
+            ...(props.allSessions ?? []).filter(
+              (session) => session.sessionId !== props.session?.sessionId
+            ),
+          ]
+        : (props.allSessions ?? []),
+    [props.allSessions, props.session]
+  );
+  const matchingSessions = useMemo(
+    () =>
+      findMatchingOrchestratorSessions(duplicateComparisonSessions, {
+        projectPath: props.session?.projectPath ?? projectPath,
+        projectPurpose: props.session?.projectPurpose ?? projectPurpose,
+      }),
+    [
+      duplicateComparisonSessions,
+      projectPath,
+      projectPurpose,
+      props.session?.projectPath,
+      props.session?.projectPurpose,
+    ]
+  );
+  const latestMatchingSession = matchingSessions[0];
+  const olderMatchingSessions = latestMatchingSession
+    ? matchingSessions.filter(
+        (session) => session.sessionId !== latestMatchingSession.sessionId
+      )
+    : [];
+  const hasCreateDuplicate = !props.session && matchingSessions.length > 0;
+  const selectedSessionHasDuplicates =
+    !!props.session && matchingSessions.length > 1;
+  const selectedSessionIsLatestDuplicate =
+    !!props.session &&
+    latestMatchingSession?.sessionId === props.session.sessionId &&
+    olderMatchingSessions.length > 0;
+  const latestOtherDuplicate =
+    props.session &&
+    latestMatchingSession?.sessionId !== props.session.sessionId
+      ? latestMatchingSession
+      : undefined;
 
   useEffect(() => {
     const defaultProjectPath = props.capabilities?.defaultProjectPath;
@@ -210,7 +300,13 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   }, [props.capabilities?.defaultProjectPath]);
 
   useEffect(() => {
-    const fallbackModelId = props.defaultModelId || modelOptions[0]?.id;
+    setCliProvider((current) =>
+      current.trim().length > 0 ? current : defaultCliProvider
+    );
+  }, [defaultCliProvider]);
+
+  useEffect(() => {
+    const fallbackModelId = modelOptions[0]?.id ?? props.defaultModelId;
     if (!fallbackModelId) {
       return;
     }
@@ -242,6 +338,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   useEffect(() => {
     if (!props.session) {
       setSessionTitle("");
+      setSessionCliProvider(defaultCliProvider);
       setSessionModelId(props.defaultModelId);
       setSessionCustomAgentId("");
       setExecutionMode("standard");
@@ -249,11 +346,14 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       return;
     }
     setSessionTitle(props.session.title);
+    setSessionCliProvider(props.session.cliProvider ?? defaultCliProvider);
     setSessionModelId(props.session.model);
     setSessionCustomAgentId(props.session.selectedCustomAgentId ?? "");
-    setExecutionMode(props.session.executionMode);
+    setExecutionMode(props.session.executionMode ?? "standard");
   }, [
+    defaultCliProvider,
     props.defaultModelId,
+    props.session?.cliProvider,
     props.session?.executionMode,
     props.session?.selectedCustomAgentId,
     props.session?.model,
@@ -311,6 +411,10 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   useEffect(() => {
     if (!props.session) {
       setStreamState("idle");
+      return;
+    }
+    if (typeof EventSource === "undefined") {
+      setStreamState("closed");
       return;
     }
 
@@ -422,21 +526,34 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       return "Loading orchestrator capabilities…";
     }
     if (props.capabilities.available) {
+      const providerNames = (props.capabilities.cliProviders ?? [])
+        .map((provider) => provider.displayName)
+        .join(" or ");
       return props.capabilities.emailDeliveryAvailable
-        ? `tmux session ${props.capabilities.tmuxSessionName} is ready for delegation and runtime email delivery is configured.`
-        : `tmux session ${props.capabilities.tmuxSessionName} is ready for delegation.`;
+        ? `tmux session ${props.capabilities.tmuxSessionName} is ready for ${providerNames} delegation and runtime email delivery is configured.`
+        : `tmux session ${props.capabilities.tmuxSessionName} is ready for ${providerNames} delegation.`;
     }
     if (!props.capabilities.tmuxInstalled) {
       return "tmux is not available on this machine.";
     }
+    if (
+      !props.capabilities.copilotInstalled &&
+      !props.capabilities.geminiInstalled
+    ) {
+      return "Neither the `copilot` CLI nor the `gemini` CLI is available on this machine.";
+    }
     if (!props.capabilities.copilotInstalled) {
       return "The `copilot` CLI is not available on this machine.";
+    }
+    if (!props.capabilities.geminiInstalled) {
+      return "The `gemini` CLI is not available on this machine.";
     }
     return "The orchestrator feature is unavailable.";
   }, [props.capabilities]);
   const sessionDetailsDirty =
     !!props.session &&
     (sessionTitle.trim() !== props.session.title ||
+      sessionCliProvider !== props.session.cliProvider ||
       sessionModelId !== props.session.model ||
       sessionCustomAgentId !== (props.session.selectedCustomAgentId ?? "") ||
       executionMode !== props.session.executionMode);
@@ -504,14 +621,35 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             <div className="eyebrow">Async delegation</div>
             <h3>Create an orchestrator session</h3>
             <p>
-              Queue work into a tmux window that runs Copilot with your chosen
-              model and execution mode, then monitor the terminal output here.
+              Queue work into a tmux window that runs Copilot or Gemini with
+              your chosen model, then monitor the terminal output here.
             </p>
           </div>
           <div className="field-note">{capabilityMessage}</div>
         </div>
 
         <div className="settings-card orchestrator-form">
+          <label className="field-group">
+            <span>CLI provider</span>
+            <select
+              value={cliProvider}
+              onChange={(event) => {
+                setCliProvider(event.target.value);
+                setExecutionMode("standard");
+              }}
+            >
+              {availableCliProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.displayName}
+                </option>
+              ))}
+            </select>
+            {selectedCreateCliProvider?.description ? (
+              <small className="field-note">
+                {selectedCreateCliProvider.description}
+              </small>
+            ) : null}
+          </label>
           <label className="field-group">
             <span>Session title</span>
             <input
@@ -571,13 +709,41 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               value={projectPurpose}
               onChange={(event) => setProjectPurpose(event.target.value)}
               rows={4}
-              placeholder="What is this project for, and what should the delegated Copilot session keep in mind?"
+              placeholder="What is this project for, and what should the delegated CLI session keep in mind?"
             />
           </label>
+          {hasCreateDuplicate && latestMatchingSession ? (
+            <div className="field-note" role="status">
+              A matching orchestrator session already exists from{" "}
+              {formatTimestamp(
+                latestMatchingSession.updatedAt ??
+                  latestMatchingSession.startedAt
+              )}
+              . Open it to keep working in one place, or create another session
+              anyway.
+              {props.onSelectSession ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() =>
+                      props.onSelectSession?.(latestMatchingSession.sessionId)
+                    }
+                  >
+                    Open latest existing session
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <label className="field-group">
             <span>Execution mode</span>
             <select
               value={executionMode}
+              disabled={
+                !selectedCreateCliProvider?.capabilities.supportsExecutionMode
+              }
               onChange={(event) =>
                 setExecutionMode(
                   event.target.value === "fleet" ? "fleet" : "standard"
@@ -585,11 +751,16 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               }
             >
               <option value="standard">Standard</option>
-              <option value="fleet">Fleet</option>
+              {selectedCreateCliProvider?.capabilities.supportsExecutionMode ? (
+                <option value="fleet">Fleet</option>
+              ) : null}
             </select>
             <small className="field-note">
-              Fleet prefixes delegated prompts with <code>/fleet</code> so
-              Copilot can parallelize work when the installed CLI supports it.
+              {selectedCreateCliProvider?.capabilities.supportsExecutionMode
+                ? 'Fleet runs delegated Copilot CLI jobs with `-p "/fleet ..."` so Copilot can parallelize work non-interactively.'
+                : `${
+                    selectedCreateCliProvider?.displayName ?? "This provider"
+                  } only supports standard delegated runs.`}
             </small>
           </label>
           <label className="field-group">
@@ -608,6 +779,10 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           ) : null}
           <div className="composer-footer">
             <div className="composer-meta">
+              <span>
+                Provider:{" "}
+                {selectedCreateCliProvider?.displayName ?? cliProvider}
+              </span>
               <span>
                 Model: {selectedNewSessionModel?.displayName ?? modelId}
               </span>
@@ -632,6 +807,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   title: title.trim() || undefined,
                   projectPath: projectPath.trim(),
                   projectPurpose: projectPurpose.trim(),
+                  cliProvider,
                   model: modelId,
                   executionMode,
                   prompt: initialPrompt.trim() || undefined,
@@ -657,8 +833,60 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               <span className="scope-chip">{props.session.status}</span>
             </div>
             <div className="panel-caption">{props.session.projectPurpose}</div>
+            {selectedSessionHasDuplicates ? (
+              <div className="field-note" role="status">
+                {selectedSessionIsLatestDuplicate
+                  ? `${olderMatchingSessions.length} older matching session${
+                      olderMatchingSessions.length === 1 ? "" : "s"
+                    } still use this same project path and purpose.`
+                  : `A newer matching session was updated ${formatTimestamp(
+                      latestOtherDuplicate?.updatedAt ??
+                        latestOtherDuplicate?.startedAt ??
+                        props.session.updatedAt
+                    )}.`}
+                {latestOtherDuplicate && props.onSelectSession ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        props.onSelectSession?.(latestOtherDuplicate.sessionId)
+                      }
+                    >
+                      Open latest duplicate
+                    </button>
+                  </>
+                ) : null}
+                {selectedSessionIsLatestDuplicate &&
+                props.onDeleteOlderDuplicates ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="ghost-button danger-button"
+                      onClick={() =>
+                        props.onDeleteOlderDuplicates?.(
+                          olderMatchingSessions.map(
+                            (session) => session.sessionId
+                          )
+                        )
+                      }
+                    >
+                      Remove {olderMatchingSessions.length} older duplicate
+                      {olderMatchingSessions.length === 1 ? "" : "s"}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             <div className="orchestrator-session-meta">
               <span>{props.session.projectPath}</span>
+              <span>
+                Provider:{" "}
+                {selectedSavedSessionCliProvider?.displayName ??
+                  props.session.cliProvider}
+              </span>
               <span>
                 Model:{" "}
                 {selectedSavedSessionModel?.displayName ?? props.session.model}
@@ -738,7 +966,29 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                 />
               </label>
               <label className="field-group">
-                <span>Copilot model</span>
+                <span>CLI provider</span>
+                <select
+                  value={sessionCliProvider}
+                  onChange={(event) => {
+                    setSessionCliProvider(event.target.value);
+                    setSessionCustomAgentId("");
+                    setExecutionMode("standard");
+                  }}
+                >
+                  {availableCliProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.displayName}
+                    </option>
+                  ))}
+                </select>
+                {selectedSessionDraftCliProvider?.description ? (
+                  <small className="field-note">
+                    {selectedSessionDraftCliProvider.description}
+                  </small>
+                ) : null}
+              </label>
+              <label className="field-group">
+                <span>Model</span>
                 <select
                   value={sessionModelId}
                   onChange={(event) => setSessionModelId(event.target.value)}
@@ -761,7 +1011,11 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   onChange={(event) =>
                     setSessionCustomAgentId(event.target.value)
                   }
-                  disabled={props.session.availableCustomAgents.length === 0}
+                  disabled={
+                    props.session.availableCustomAgents.length === 0 ||
+                    !selectedSessionDraftCliProvider?.capabilities
+                      .supportsCustomAgents
+                  }
                 >
                   <option value="">No custom agent</option>
                   {props.session.availableCustomAgents.map((agent) => (
@@ -771,15 +1025,25 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   ))}
                 </select>
                 <small className="field-note">
-                  {props.session.availableCustomAgents.length > 0
-                    ? "The selected custom agent is passed to future delegated Copilot CLI runs."
-                    : "No `.agent.md` files were discovered in the project path when this session was created."}
+                  {!selectedSessionDraftCliProvider?.capabilities
+                    .supportsCustomAgents
+                    ? `${
+                        selectedSessionDraftCliProvider?.displayName ??
+                        "This provider"
+                      } does not support Copilot custom agents.`
+                    : props.session.availableCustomAgents.length > 0
+                      ? "The selected custom agent is passed to future delegated Copilot CLI runs."
+                      : "No `.agent.md` files were discovered in the project path when this session was created."}
                 </small>
               </label>
               <label className="field-group">
                 <span>Execution mode</span>
                 <select
                   value={executionMode}
+                  disabled={
+                    !selectedSessionDraftCliProvider?.capabilities
+                      .supportsExecutionMode
+                  }
                   onChange={(event) =>
                     setExecutionMode(
                       event.target.value === "fleet" ? "fleet" : "standard"
@@ -787,11 +1051,19 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                   }
                 >
                   <option value="standard">Standard</option>
-                  <option value="fleet">Fleet</option>
+                  {selectedSessionDraftCliProvider?.capabilities
+                    .supportsExecutionMode ? (
+                    <option value="fleet">Fleet</option>
+                  ) : null}
                 </select>
                 <small className="field-note">
-                  Fleet uses the Copilot CLI <code>/fleet</code> command for
-                  future delegated jobs when the installed CLI supports it.
+                  {selectedSessionDraftCliProvider?.capabilities
+                    .supportsExecutionMode
+                    ? 'Fleet runs future delegated Copilot CLI jobs with `-p "/fleet ..."` for non-interactive parallel execution.'
+                    : `${
+                        selectedSessionDraftCliProvider?.displayName ??
+                        "This provider"
+                      } only supports standard delegated runs.`}
                 </small>
               </label>
             </div>
@@ -801,6 +1073,11 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             </div>
             <div className="composer-footer">
               <div className="composer-meta">
+                <span>
+                  Provider:{" "}
+                  {selectedSessionDraftCliProvider?.displayName ??
+                    sessionCliProvider}
+                </span>
                 <span>
                   Model:{" "}
                   {selectedSessionDraftModel?.displayName ?? sessionModelId}
@@ -822,6 +1099,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                 onClick={() =>
                   props.onUpdateSession({
                     title: sessionTitle.trim(),
+                    cliProvider: sessionCliProvider,
                     model: sessionModelId,
                     selectedCustomAgentId: sessionCustomAgentId || null,
                     executionMode,
@@ -1166,7 +1444,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           <div className="composer-footer">
             <div className="composer-meta">
               <span>
-                {`Uses \`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo ${props.session.executionMode === "fleet" ? "-i '/fleet ...'" : "-p"}\``}
+                {`Uses \`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo -p ${props.session.executionMode === "fleet" ? "'/fleet ...'" : "..."}\``}
               </span>
               <span>
                 Custom agent: {selectedSavedCustomAgent?.name ?? "None"}

@@ -51,6 +51,7 @@ import {
 } from "@min-kb-app/shared";
 import { type Context, Hono } from "hono";
 import { runChatFlow } from "./chat-flow.js";
+import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import {
   buildMemoryAnalysisPrompt,
   buildMemoryAnalysisRuntimeConfig,
@@ -60,7 +61,6 @@ import {
   TmuxOrchestratorService,
 } from "./orchestrator.js";
 import { ChatScheduleService } from "./schedule.js";
-import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import { computeNextRunAt, OrchestratorScheduleService } from "./scheduler.js";
 
 const workspace = await resolveWorkspace();

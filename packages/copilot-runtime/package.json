@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@github/copilot-sdk": "latest",
+    "@google/genai": "^1.48.0",
     "@min-kb-app/min-kb-store": "workspace:*",
     "@min-kb-app/shared": "workspace:*"
   }
