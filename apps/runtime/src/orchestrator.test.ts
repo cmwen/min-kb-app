@@ -90,6 +90,11 @@ beforeEach(() => {
 describe("TmuxOrchestratorService.createSession", () => {
   it("defaults new sessions to the implementation orchestrator custom agent", async () => {
     const root = await createTempWorkspaceRoot();
+    await Promise.all([
+      mkdir(path.join(root, "agents"), { recursive: true }),
+      mkdir(path.join(root, "memory"), { recursive: true }),
+      mkdir(path.join(root, "skills"), { recursive: true }),
+    ]);
     await mkdir(path.join(root, ".github", "agents"), { recursive: true });
     await writeFile(
       path.join(
