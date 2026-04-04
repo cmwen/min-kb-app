@@ -788,6 +788,7 @@ function buildGeminiUsageStats(
 class LmStudioRuntimeProvider implements RuntimeProvider {
   readonly descriptor = LM_STUDIO_RUNTIME_PROVIDER;
   private readonly baseUrl: string;
+  private readonly nativeBaseUrl: string;
   private readonly configuredModel: string | undefined;
   private readonly modelDiscoveryTimeoutMs: number;
   private readonly chatTimeoutMs: number;
@@ -802,6 +803,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
         process.env.LM_STUDIO_BASE_URL ??
         DEFAULT_LM_STUDIO_BASE_URL
     );
+    this.nativeBaseUrl = getLmStudioNativeBaseUrl(this.baseUrl);
     this.configuredModel =
       options?.lmStudioModel ??
       process.env.MIN_KB_APP_LM_STUDIO_MODEL ??
@@ -880,33 +882,15 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
     );
     const sessionDiagnostics =
       buildPromptBackedSessionDiagnostics(enabledSkills);
-    const response = await fetchWithTimeout(
-      `${this.baseUrl}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: input.config.model,
-          messages: buildLmStudioMessages({
-            conversation: input.conversation ?? [],
-            prompt: input.prompt,
-            agentPrompt: input.agent?.combinedPrompt,
-            enabledSkills,
-          }),
-          stream: false,
-        }),
-      },
-      this.chatTimeoutMs,
-      "LM Studio chat request"
-    );
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `LM Studio chat request failed (${response.status}): ${body || "No response body."}`
-      );
-    }
+    const response = await this.sendChatCompletion({
+      model: input.config.model,
+      messages: buildLmStudioMessages({
+        conversation: input.conversation ?? [],
+        prompt: input.prompt,
+        agentPrompt: input.agent?.combinedPrompt,
+        enabledSkills,
+      }),
+    });
 
     const completion =
       (await response.json()) as LmStudioChatCompletionResponse;
@@ -924,6 +908,70 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
       ),
       sessionDiagnostics,
     };
+  }
+
+  private async sendChatCompletion(input: {
+    model: string;
+    messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  }): Promise<Response> {
+    const attempt = async () =>
+      fetchWithTimeout(
+        `${this.baseUrl}/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: input.model,
+            messages: input.messages,
+            stream: false,
+          }),
+        },
+        this.chatTimeoutMs,
+        "LM Studio chat request"
+      );
+    let response = await attempt();
+    if (response.ok) {
+      return response;
+    }
+
+    const body = await response.text();
+    if (!shouldRetryLmStudioChatAfterModelLoad(response.status, body)) {
+      throw new Error(formatLmStudioChatError(response.status, body));
+    }
+
+    await this.loadModel(input.model);
+    response = await attempt();
+    if (!response.ok) {
+      const retryBody = await response.text();
+      throw new Error(formatLmStudioChatError(response.status, retryBody));
+    }
+    return response;
+  }
+
+  private async loadModel(model: string): Promise<void> {
+    const response = await fetchWithTimeout(
+      `${this.nativeBaseUrl}/api/v1/models/load`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+        }),
+      },
+      this.chatTimeoutMs,
+      "LM Studio model load request"
+    );
+
+    if (response.ok) {
+      return;
+    }
+
+    const body = await response.text();
+    throw new Error(formatLmStudioModelLoadError(model, response.status, body));
   }
 }
 
@@ -1107,6 +1155,69 @@ function buildLmStudioUsageStats(
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
+}
+
+function getLmStudioNativeBaseUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  const url = new URL(normalized);
+  const trimmedPath = url.pathname.replace(/\/+$/, "");
+  url.pathname =
+    trimmedPath.endsWith("/v1") && trimmedPath.length > 0
+      ? trimmedPath.slice(0, -3) || "/"
+      : trimmedPath || "/";
+  url.search = "";
+  url.hash = "";
+  return normalizeBaseUrl(url.toString());
+}
+
+function shouldRetryLmStudioChatAfterModelLoad(
+  status: number,
+  body: string
+): boolean {
+  if (status !== 400) {
+    return false;
+  }
+  const normalizedBody = body.toLowerCase();
+  return (
+    normalizedBody.includes("failed to load model") ||
+    normalizedBody.includes("no model loaded")
+  );
+}
+
+function formatLmStudioChatError(status: number, body: string): string {
+  return `LM Studio chat request failed (${status}): ${
+    getLmStudioErrorMessage(body) ?? (body || "No response body.")
+  }`;
+}
+
+function formatLmStudioModelLoadError(
+  model: string,
+  status: number,
+  body: string
+): string {
+  return `LM Studio failed to auto-load model "${model}" (${status}): ${
+    getLmStudioErrorMessage(body) ?? (body || "No response body.")
+  }. Load it in LM Studio first or choose a different local model.`;
+}
+
+function getLmStudioErrorMessage(body: string): string | undefined {
+  if (!body) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: {
+        message?: string;
+      };
+    };
+    const message = parsed.error?.message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function fetchWithTimeout(

@@ -31,6 +31,8 @@ If the LM Studio provider is selected and its model list is empty:
 - make sure LM Studio is running locally
 - confirm `MIN_KB_APP_LM_STUDIO_BASE_URL` or `LM_STUDIO_BASE_URL` points at the correct OpenAI-compatible `/v1` root
 - optionally set `MIN_KB_APP_LM_STUDIO_MODEL` to expose a fallback model id when live discovery is unavailable
+- LM Studio's `/v1/models` can include downloaded models that are not loaded into memory yet; if a send fails with `Failed to load model`, load it in LM Studio's Local Server UI or let the app retry through `/api/v1/models/load`
+- if auto-load itself fails with `model_load_failed`, the runtime request path is working but LM Studio could not load that model into memory; try loading it manually, reducing memory usage, or switching to a smaller/local-server-compatible model
 
 ## I cannot send a message
 

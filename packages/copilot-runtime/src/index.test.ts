@@ -851,6 +851,206 @@ describe("ChatRuntimeService", () => {
     vi.useRealTimers();
   });
 
+  it("auto-loads an LM Studio model and retries once when chat reports it is not loaded", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            message:
+              'Failed to load model "google/gemma-4-e4b". Error: Failed to load model',
+            type: "invalid_request_error",
+            param: "model",
+            code: null,
+          },
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "loaded",
+          type: "llm",
+          instance_id: "google/gemma-4-e4b",
+          load_time_seconds: 4.2,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content: "Here is the recovered response.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "lmstudio-auto-load-session",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:1234/v1/chat/completions",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:1234/api/v1/models/load",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: expect.any(AbortSignal),
+        body: JSON.stringify({
+          model: "google/gemma-4-e4b",
+        }),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://127.0.0.1:1234/v1/chat/completions",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      })
+    );
+    expect(result.assistantText).toBe("Here is the recovered response.");
+  });
+
+  it("surfaces a clear error when LM Studio still cannot load the requested model", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            message:
+              'Failed to load model "google/gemma-4-e4b". Error: Failed to load model',
+            type: "invalid_request_error",
+            param: "model",
+            code: null,
+          },
+        }),
+        {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: {
+            type: "model_load_failed",
+            message:
+              "Failed to load LLM 'google/gemma-4-e4b': Error: Failed to load model",
+          },
+        }),
+        {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    await expect(
+      runtime.sendMessage({
+        agentId: "chat-agent",
+        sessionId: "lmstudio-auto-load-session",
+        prompt: "Answer the question.",
+        config: {
+          provider: "lmstudio",
+          model: "google/gemma-4-e4b",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      })
+    ).rejects.toThrow(
+      "LM Studio failed to auto-load model \"google/gemma-4-e4b\" (500): Failed to load LLM 'google/gemma-4-e4b': Error: Failed to load model. Load it in LM Studio first or choose a different local model."
+    );
+  });
+
   it("falls back to accumulated assistant deltas when the final assistant message is missing", async () => {
     createSessionMock.mockResolvedValueOnce(
       createMockSession({
