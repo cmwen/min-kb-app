@@ -110,6 +110,7 @@ const SESSION_COMPLETION_TIMEOUT_MS = 600000;
 const DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
 const DEFAULT_LM_STUDIO_MODEL_DISCOVERY_TIMEOUT_MS = 15000;
 const DEFAULT_LM_STUDIO_CHAT_TIMEOUT_MS = SESSION_COMPLETION_TIMEOUT_MS;
+const DEFAULT_LM_STUDIO_MAX_COMPLETION_TOKENS = 8192;
 
 export class ChatRuntimeService {
   private readonly providers: RuntimeProvider[];
@@ -126,6 +127,7 @@ export class ChatRuntimeService {
       geminiProject?: string;
       geminiUseVertexAi?: boolean;
       lmStudioBaseUrl?: string;
+      lmStudioMaxCompletionTokens?: number;
       lmStudioModel?: string;
     }
   ) {
@@ -792,10 +794,15 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
   private readonly configuredModel: string | undefined;
   private readonly modelDiscoveryTimeoutMs: number;
   private readonly chatTimeoutMs: number;
+  private readonly maxCompletionTokens: number;
 
   constructor(
     private readonly workspace: MinKbWorkspace,
-    options?: { lmStudioBaseUrl?: string; lmStudioModel?: string }
+    options?: {
+      lmStudioBaseUrl?: string;
+      lmStudioMaxCompletionTokens?: number;
+      lmStudioModel?: string;
+    }
   ) {
     this.baseUrl = normalizeBaseUrl(
       options?.lmStudioBaseUrl ??
@@ -816,6 +823,15 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
       "MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS",
       DEFAULT_LM_STUDIO_CHAT_TIMEOUT_MS
     );
+    this.maxCompletionTokens =
+      options?.lmStudioMaxCompletionTokens ??
+      readPositiveIntegerEnv(
+        "MIN_KB_APP_LM_STUDIO_MAX_COMPLETION_TOKENS",
+        readPositiveIntegerEnv(
+          "LM_STUDIO_MAX_COMPLETION_TOKENS",
+          DEFAULT_LM_STUDIO_MAX_COMPLETION_TOKENS
+        )
+      );
   }
 
   async listModels(): Promise<ModelDescriptor[]> {
@@ -925,6 +941,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
           body: JSON.stringify({
             model: input.model,
             messages: input.messages,
+            max_completion_tokens: this.maxCompletionTokens,
             stream: false,
           }),
         },

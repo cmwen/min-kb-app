@@ -159,6 +159,7 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_APP_LM_STUDIO_BASE_URL` or `LM_STUDIO_BASE_URL` point the optional LM Studio provider at a local OpenAI-compatible endpoint
 - `MIN_KB_APP_LM_STUDIO_MODEL` or `LM_STUDIO_MODEL` provide a fallback LM Studio model id when live model discovery is unavailable
 - `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` and `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` override the local-model discovery and chat request timeouts when slower LM Studio models need more time
+- `MIN_KB_APP_LM_STUDIO_MAX_COMPLETION_TOKENS` or `LM_STUDIO_MAX_COMPLETION_TOKENS` raise or lower the LM Studio chat completion budget when local reasoning models like Gemma need more room to finish their visible answer
 - `VITE_API_BASE_URL` lets the web build target a non-default runtime API
 - `VITE_BASE_PATH` optionally overrides the web app base path for static hosting builds
 - `RUNTIME.json` stores the saved per-session chat runtime config

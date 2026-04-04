@@ -562,6 +562,7 @@ describe("ChatRuntimeService", () => {
             },
             { role: "user", content: "Summarize the latest issue." },
           ],
+          max_completion_tokens: 8192,
           stream: false,
         }),
       })

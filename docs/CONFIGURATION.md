@@ -31,6 +31,8 @@ This project stores configuration and session metadata in three places:
 | `LM_STUDIO_MODEL` | runtime LM Studio provider | none | Backward-compatible fallback for the LM Studio model id |
 | `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` | runtime LM Studio provider | `15000` | Timeout for local LM Studio `/models` discovery |
 | `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` | runtime LM Studio provider | `600000` | Timeout for LM Studio `/chat/completions` requests when slower local models need more time |
+| `MIN_KB_APP_LM_STUDIO_MAX_COMPLETION_TOKENS` | runtime LM Studio provider | `8192` | Preferred LM Studio completion-token cap sent with `/chat/completions` so reasoning models have room to finish visible output |
+| `LM_STUDIO_MAX_COMPLETION_TOKENS` | runtime LM Studio provider | `8192` | Backward-compatible fallback for the LM Studio completion-token cap |
 | `VITE_API_BASE_URL` | web build | empty string | Overrides the web app API root instead of using same-origin `/api` |
 | `VITE_BASE_PATH` | web build | inferred from the GitHub Pages workflow or `/` locally | Overrides the Vite base path for static hosting |
 
