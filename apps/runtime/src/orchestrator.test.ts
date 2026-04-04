@@ -392,6 +392,87 @@ describe("TmuxOrchestratorService.delegate", () => {
     );
     expect(result).toEqual(queuedSession);
   });
+
+  it("validates Gemini sessions against Gemini CLI availability", async () => {
+    const queuedJob: OrchestratorJob = {
+      jobId: "job-2",
+      sessionId: "session-1",
+      promptPreview: "Summarize the failures",
+      promptMode: "inline",
+      status: "queued",
+      submittedAt: "2026-03-20T12:04:00Z",
+      jobDirectory: await createTempJobDirectory(),
+    };
+    const session: OrchestratorSession = {
+      sessionId: "session-1",
+      agentId: "copilot-orchestrator",
+      title: "Repo support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Handle runtime support work",
+      projectPath: "/tmp/project",
+      projectPurpose: "Handle runtime support work",
+      cliProvider: "gemini",
+      model: "gemini-2.5-pro",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-repo-support-0001",
+      tmuxPaneId: "%42",
+      status: "idle",
+      activeJobId: undefined,
+      lastJobId: undefined,
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/orchestrator/session-1",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/session-1/SESSION.md",
+      jobs: [],
+      terminalTail: "",
+      logSize: 0,
+    };
+    const queuedSession: OrchestratorSession = {
+      ...session,
+      updatedAt: "2026-03-20T12:06:00Z",
+      lastJobId: "job-2",
+      jobs: [queuedJob],
+    };
+
+    const service = new TmuxOrchestratorService(
+      { agentsRoot: "/tmp" } as never,
+      "/tmp"
+    );
+    Object.assign(service as object, {
+      getSession: vi
+        .fn()
+        .mockResolvedValueOnce(session)
+        .mockResolvedValueOnce(queuedSession),
+      startPreparedJob: vi.fn().mockResolvedValue(undefined),
+      prepareJobArtifacts: vi.fn().mockResolvedValue(queuedJob),
+      getCapabilities: vi.fn().mockResolvedValue({
+        available: true,
+        defaultProjectPath: "/tmp",
+        recentProjectPaths: [],
+        tmuxInstalled: true,
+        copilotInstalled: false,
+        geminiInstalled: true,
+        tmuxSessionName: "min-kb-app-orchestrator",
+      }),
+    });
+    storeMocks.createOrchestratorJob.mockResolvedValueOnce(queuedJob);
+
+    const result = await service.delegate(
+      "session-1",
+      "Summarize the failures"
+    );
+
+    expect(storeMocks.createOrchestratorJob).toHaveBeenCalledWith(
+      expect.anything(),
+      "session-1",
+      expect.objectContaining({
+        promptPreview: "Summarize the failures",
+      })
+    );
+    expect(result).toEqual(queuedSession);
+  });
 });
 
 describe("TmuxOrchestratorService premium usage tracking", () => {
@@ -969,6 +1050,78 @@ describe("TmuxOrchestratorService.restartSession", () => {
         status: "idle",
       }
     );
+    expect(result).toEqual(restartedSession);
+  });
+
+  it("restarts Gemini sessions without requiring Copilot CLI", async () => {
+    const session: OrchestratorSession = {
+      sessionId: "session-1",
+      agentId: "copilot-orchestrator",
+      title: "Repo support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Handle runtime support work",
+      projectPath: "/tmp/project",
+      projectPurpose: "Handle runtime support work",
+      cliProvider: "gemini",
+      model: "gemini-2.5-pro",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-repo-support-0001",
+      tmuxPaneId: "%42",
+      status: "completed",
+      activeJobId: undefined,
+      lastJobId: "job-1",
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/orchestrator/session-1",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/session-1/SESSION.md",
+      jobs: [],
+      terminalTail: "old output",
+      logSize: 10,
+    };
+    const restartedSession: OrchestratorSession = {
+      ...session,
+      tmuxPaneId: "%99",
+      terminalTail: "[min-kb-app] Ready for Repo support\n",
+      logSize: 36,
+    };
+
+    const service = new TmuxOrchestratorService(
+      { agentsRoot: "/tmp" } as never,
+      "/tmp"
+    );
+    const createWindow = vi.fn().mockResolvedValue("%99");
+
+    Object.assign(service as object, {
+      getCapabilities: vi.fn().mockResolvedValue({
+        available: true,
+        defaultProjectPath: "/tmp",
+        recentProjectPaths: [],
+        tmuxInstalled: true,
+        copilotInstalled: false,
+        geminiInstalled: true,
+        tmuxSessionName: "min-kb-app-orchestrator",
+      }),
+      getSession: vi.fn().mockResolvedValue(restartedSession),
+      createWindow,
+      killWindowForPane: vi.fn().mockResolvedValue(undefined),
+    });
+    storeMocks.getOrchestratorSession.mockResolvedValue(session);
+
+    const result = await service.restartSession("session-1");
+
+    expect(storeMocks.resetOrchestratorTerminalLog).toHaveBeenCalledWith(
+      expect.anything(),
+      "session-1"
+    );
+    expect(createWindow).toHaveBeenCalledWith({
+      projectPath: "/tmp/project",
+      tmuxWindowName: "project-repo-support-0001",
+      startedAt: "2026-03-20T12:00:00Z",
+      title: "Repo support",
+      sessionId: "session-1",
+    });
     expect(result).toEqual(restartedSession);
   });
 });

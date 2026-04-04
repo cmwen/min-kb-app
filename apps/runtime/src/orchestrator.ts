@@ -418,8 +418,10 @@ export class TmuxOrchestratorService {
     sessionId: string,
     request: string | OrchestratorDelegateRequest
   ): Promise<OrchestratorSession> {
-    await this.assertCapabilities();
     const session = await this.getSession(sessionId);
+    await this.assertCapabilities(
+      session.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER
+    );
     const delegatedPrompt =
       typeof request === "string" ? request : request.prompt;
     const attachment =
@@ -519,8 +521,10 @@ export class TmuxOrchestratorService {
   }
 
   async restartSession(sessionId: string): Promise<OrchestratorSession> {
-    await this.assertCapabilities();
     const session = await getOrchestratorSession(this.workspace, sessionId);
+    await this.assertCapabilities(
+      session.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER
+    );
     const runningJob =
       session.jobs.find((job) => job.jobId === session.activeJobId) ??
       session.jobs.find((job) => job.status === "running");

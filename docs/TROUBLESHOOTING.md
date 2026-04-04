@@ -65,16 +65,17 @@ Chat attachments are stored in the session folder and loaded back through `/api/
 - image attachments are served inline; other files download as attachments
 - if an older session references a missing file on disk, reopen the session after restoring the attachment under the session `attachments/` directory
 
-For orchestrator jobs, uploaded files are stored under the delegation folder and are consumed from disk by the Copilot CLI rather than through the chat attachment endpoint.
+For orchestrator jobs, uploaded files are stored under the delegation folder and are consumed from disk by the selected CLI backend rather than through the chat attachment endpoint.
 
 ## The orchestrator session cannot run
 
-The built-in `copilot-orchestrator` agent requires both `tmux` and the GitHub `copilot` CLI.
+The built-in `copilot-orchestrator` agent requires `tmux` plus at least one supported CLI backend: GitHub `copilot` or Google `gemini`.
 
 - confirm `tmux` is installed and on `PATH`
-- confirm `copilot` is installed and authenticated
+- confirm the selected CLI backend is installed and authenticated
 - open the orchestrator workspace and check the capability banner for missing dependencies
 - if a pane gets stuck, use the restart action to recreate it without deleting the saved session
+- if a Gemini-backed job prints `You have exhausted your capacity on this model.`, that message comes from the Gemini CLI provider inside tmux rather than from tmux itself; switch to a model/account with available quota or retry later
 
 ## The web app cannot reach a non-default runtime URL
 
