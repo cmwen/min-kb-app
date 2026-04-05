@@ -126,6 +126,18 @@ type DangerAction =
       lastRunStatus: ScheduleTask["lastRunStatus"];
     };
 
+interface PendingAssistantSnapshot {
+  assistantText: string;
+  thinkingText: string;
+}
+
+function createEmptyPendingAssistantSnapshot(): PendingAssistantSnapshot {
+  return {
+    assistantText: "",
+    thinkingText: "",
+  };
+}
+
 export default function App() {
   const cachedSnapshot = useMemo(() => loadSnapshot(), []);
   const cachedAppState = useMemo(() => loadAppState(), []);
@@ -194,6 +206,8 @@ export default function App() {
   const [offline, setOffline] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [pendingAssistantSnapshot, setPendingAssistantSnapshot] =
+    useState<PendingAssistantSnapshot>(createEmptyPendingAssistantSnapshot);
   const [queue, setQueue] = useState<QueuedMessage[]>(loadQueue());
   const [mcpText, setMcpText] = useState(() =>
     cachedAppState.preferNewSession
@@ -904,6 +918,7 @@ export default function App() {
     setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
     setMcpError(undefined);
     setError(undefined);
+    setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
   }
@@ -914,6 +929,7 @@ export default function App() {
     setPreferNewSession(false);
     setDeferInitialSessionLoad(false);
     setError(undefined);
+    setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
     setMemoryAnalysis(undefined);
     setMemoryAnalysisOpen(false);
     if (
@@ -937,6 +953,7 @@ export default function App() {
     setMcpText(JSON.stringify(defaultConfig.mcpServers, null, 2));
     setMcpError(undefined);
     setError(undefined);
+    setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
     setSessionLoadPending(false);
     setSessionLoadTarget(undefined);
     setMemoryAnalysis(undefined);
@@ -1017,21 +1034,38 @@ export default function App() {
 
     setBusy(true);
     setError(undefined);
+    setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
 
     try {
-      const response = await api.sendMessage(
+      const response = await api.sendMessageStream(
         selectedAgentId,
         selectedSessionId,
-        request
+        request,
+        (event) => {
+          if (event.type === "thread") {
+            storeThread(event.thread);
+            setSelectedSessionId(event.thread.sessionId);
+            setPreferNewSession(false);
+            return;
+          }
+          if (event.type === "assistant_snapshot") {
+            setPendingAssistantSnapshot({
+              assistantText: event.assistantText ?? "",
+              thinkingText: event.thinkingText ?? "",
+            });
+          }
+        }
       );
       storeThread(response.thread);
       setSelectedSessionId(response.thread.sessionId);
       setPreferNewSession(false);
       setDraft("");
       setChatAttachment(undefined);
+      setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
       setOffline(false);
     } catch (sendError) {
       setError(getErrorMessage(sendError));
+      setPendingAssistantSnapshot(createEmptyPendingAssistantSnapshot());
       if (isOfflineError(sendError)) {
         setOffline(true);
         if (request.attachment) {
@@ -2140,6 +2174,8 @@ export default function App() {
                 <ChatTimeline
                   thread={selectedThread}
                   pending={busy}
+                  pendingAssistantText={pendingAssistantSnapshot.assistantText}
+                  pendingThinkingText={pendingAssistantSnapshot.thinkingText}
                   error={error}
                 />
               )}

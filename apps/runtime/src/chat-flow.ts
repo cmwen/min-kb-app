@@ -20,6 +20,78 @@ export async function runChatFlow(
   request: ChatRequest,
   forcedSessionId?: string
 ): Promise<ChatResponse> {
+  const { userThread, prompt, runtimeConfig, sessionId, title } =
+    await prepareChatFlow(workspace, agentId, request, forcedSessionId);
+  const runtimeResult = await runtime.sendMessage({
+    agentId,
+    sessionId,
+    prompt,
+    config: runtimeConfig,
+    conversation: userThread.turns.slice(0, -1).map((turn) => ({
+      sender: turn.sender,
+      bodyMarkdown: turn.bodyMarkdown,
+    })),
+  });
+
+  return persistChatFlowResult(
+    workspace,
+    agentId,
+    request,
+    userThread,
+    runtimeResult,
+    runtimeConfig,
+    sessionId,
+    title
+  );
+}
+
+export async function runChatFlowStream(
+  workspace: MinKbWorkspace,
+  runtime: ChatRuntimeService,
+  agentId: string,
+  request: ChatRequest,
+  onThread: (thread: Awaited<ReturnType<typeof saveChatTurn>>) => void,
+  onAssistantSnapshot: (snapshot: {
+    assistantText?: string;
+    thinkingText?: string;
+  }) => void,
+  forcedSessionId?: string
+): Promise<ChatResponse> {
+  const { userThread, prompt, runtimeConfig, sessionId, title } =
+    await prepareChatFlow(workspace, agentId, request, forcedSessionId);
+  onThread(userThread);
+  const runtimeResult = await runtime.streamMessage(
+    {
+      agentId,
+      sessionId,
+      prompt,
+      config: runtimeConfig,
+      conversation: userThread.turns.slice(0, -1).map((turn) => ({
+        sender: turn.sender,
+        bodyMarkdown: turn.bodyMarkdown,
+      })),
+    },
+    onAssistantSnapshot
+  );
+
+  return persistChatFlowResult(
+    workspace,
+    agentId,
+    request,
+    userThread,
+    runtimeResult,
+    runtimeConfig,
+    sessionId,
+    title
+  );
+}
+
+async function prepareChatFlow(
+  workspace: MinKbWorkspace,
+  agentId: string,
+  request: ChatRequest,
+  forcedSessionId?: string
+) {
   if (!request.prompt.trim() && !request.attachment) {
     throw new Error("Provide a prompt or attach a file before sending.");
   }
@@ -55,18 +127,25 @@ export async function runChatFlow(
     request.prompt,
     userTurn?.attachment
   );
-
-  const runtimeResult = await runtime.sendMessage({
-    agentId,
-    sessionId,
+  return {
+    userThread,
     prompt,
-    config: runtimeConfig,
-    conversation: userThread.turns.slice(0, -1).map((turn) => ({
-      sender: turn.sender,
-      bodyMarkdown: turn.bodyMarkdown,
-    })),
-  });
+    runtimeConfig,
+    sessionId,
+    title,
+  };
+}
 
+async function persistChatFlowResult(
+  workspace: MinKbWorkspace,
+  agentId: string,
+  request: ChatRequest,
+  userThread: Awaited<ReturnType<typeof saveChatTurn>>,
+  runtimeResult: Awaited<ReturnType<ChatRuntimeService["sendMessage"]>>,
+  runtimeConfig: ReturnType<typeof mergeChatRuntimeConfigs>,
+  sessionId: string,
+  title: string
+): Promise<ChatResponse> {
   const summary =
     userThread.turnCount <= 1
       ? buildSummary(title, request.prompt, request.attachment?.name)
@@ -77,6 +156,7 @@ export async function runChatFlow(
     title,
     sender: "assistant",
     bodyMarkdown: runtimeResult.assistantText,
+    thinkingMarkdown: runtimeResult.thinkingText,
     createdAt: new Date().toISOString(),
     summary,
     runtimeConfig,

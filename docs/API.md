@@ -143,11 +143,30 @@ Notes:
 
 Response body: `ChatResponse`
 
+### `POST /api/agents/:agentId/sessions/stream`
+
+Creates a new chat session and streams progress as newline-delimited JSON (`application/x-ndjson`).
+
+Request body: `ChatRequest`
+
+Stream events: `ChatStreamEvent`
+
+- `{"type":"thread","thread":...}` after the user turn is persisted
+- `{"type":"assistant_snapshot","assistantText":"..."}` as the provider emits newer visible assistant text
+- `{"type":"complete","response":...}` with the final `ChatResponse`
+- `{"type":"error","error":"..."}` before the stream closes if the request fails after headers are sent
+
 ### `POST /api/agents/:agentId/sessions/:sessionId/messages`
 
 Appends a new user turn to an existing chat session. Uses the same `ChatRequest` and `ChatResponse` shapes as the create endpoint.
 
 Like session creation, Copilot-backed message sends wait for the underlying SDK session to settle and use the same 10-minute timeout budget for long-running agent loops.
+
+### `POST /api/agents/:agentId/sessions/:sessionId/messages/stream`
+
+Appends a user turn to an existing chat session and returns the same `ChatStreamEvent` NDJSON stream as the create-stream endpoint.
+
+The web UI uses these stream endpoints so slower providers such as LM Studio can show incremental assistant snapshots before the final assistant turn is persisted.
 
 ### `POST /api/agents/:agentId/sessions/:sessionId/analyze-for-memory`
 

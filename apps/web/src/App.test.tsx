@@ -18,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
   getScheduledTask: vi.fn(),
   analyzeMemory: vi.fn(),
   sendMessage: vi.fn(),
+  sendMessageStream: vi.fn(),
   delegateOrchestratorJob: vi.fn(),
   createScheduledTask: vi.fn(),
   updateScheduledTask: vi.fn(),
@@ -174,6 +175,14 @@ beforeEach(() => {
       },
     ],
   });
+  apiMocks.sendMessageStream.mockImplementation(
+    async (
+      agentId: string,
+      sessionId: string | undefined,
+      request: unknown,
+      _onEvent: (event: unknown) => void
+    ) => apiMocks.sendMessage(agentId, sessionId, request)
+  );
 });
 
 describe("App memory analysis", () => {
@@ -332,8 +341,10 @@ describe("App memory analysis", () => {
     );
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    await waitFor(() => expect(apiMocks.sendMessage).toHaveBeenCalledTimes(1));
-    expect(apiMocks.sendMessage).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(apiMocks.sendMessageStream).toHaveBeenCalledTimes(1)
+    );
+    expect(apiMocks.sendMessageStream).toHaveBeenCalledWith(
       "support-agent",
       "session-1",
       expect.objectContaining({
@@ -343,8 +354,183 @@ describe("App memory analysis", () => {
           contentType: "image/png",
           size: 4,
         }),
-      })
+      }),
+      expect.any(Function)
     );
+  });
+
+  it("renders streaming assistant snapshots before the final chat response lands", async () => {
+    const user = userEvent.setup();
+    let resolveResponse:
+      | ((value: {
+          thread: {
+            sessionId: string;
+            agentId: string;
+            title: string;
+            startedAt: string;
+            summary: string;
+            manifestPath: string;
+            turnCount: number;
+            lastTurnAt: string;
+            runtimeConfig: {
+              model: string;
+              disabledSkills: string[];
+              mcpServers: Record<string, never>;
+            };
+            turns: Array<{
+              messageId: string;
+              sender: "user" | "assistant";
+              createdAt: string;
+              bodyMarkdown: string;
+              thinkingMarkdown?: string;
+              relativePath: string;
+            }>;
+          };
+          assistantTurn: {
+            messageId: string;
+            sender: "assistant";
+            createdAt: string;
+            bodyMarkdown: string;
+            thinkingMarkdown?: string;
+            relativePath: string;
+          };
+        }) => void)
+      | undefined;
+    apiMocks.sendMessageStream.mockImplementation(
+      async (
+        _agentId: string,
+        _sessionId: string | undefined,
+        _request: unknown,
+        onEvent: (event: {
+          type: "thread" | "assistant_snapshot";
+          thread?: {
+            sessionId: string;
+            agentId: string;
+            title: string;
+            startedAt: string;
+            summary: string;
+            manifestPath: string;
+            turnCount: number;
+            lastTurnAt: string;
+            runtimeConfig: {
+              model: string;
+              disabledSkills: string[];
+              mcpServers: Record<string, never>;
+            };
+            turns: Array<{
+              messageId: string;
+              sender: "user";
+              createdAt: string;
+              bodyMarkdown: string;
+              relativePath: string;
+            }>;
+          };
+          assistantText?: string;
+          thinkingText?: string;
+        }) => void
+      ) => {
+        onEvent({
+          type: "thread",
+          thread: {
+            sessionId: "session-1",
+            agentId: "support-agent",
+            title: "Support chat",
+            startedAt: "2026-03-20T12:00:00Z",
+            summary: "Investigate memory analysis behavior",
+            manifestPath: "/tmp/session-1/SESSION.md",
+            turnCount: 3,
+            lastTurnAt: "2026-03-20T12:02:00Z",
+            runtimeConfig: {
+              model: "gpt-5",
+              disabledSkills: [],
+              mcpServers: {},
+            },
+            turns: [
+              {
+                messageId: "m1",
+                sender: "user",
+                createdAt: "2026-03-20T12:02:00Z",
+                bodyMarkdown: "Stream this reply.",
+                relativePath: "turns/m1.md",
+              },
+            ],
+          },
+        });
+        onEvent({
+          type: "assistant_snapshot",
+          assistantText: "Streaming reply in progress.",
+          thinkingText: "Check the deploy logs before summarizing.",
+        });
+        return await new Promise((resolve) => {
+          resolveResponse = resolve;
+        });
+      }
+    );
+
+    render(<App />);
+
+    await user.type(
+      await screen.findByLabelText("Message composer"),
+      "Stream this reply."
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(
+      await screen.findByText("Streaming reply in progress.")
+    ).not.toBeNull();
+    const streamingThinkingPanel = screen
+      .getByText("Thinking process")
+      .closest("details");
+    expect(streamingThinkingPanel?.hasAttribute("open")).toBe(false);
+
+    resolveResponse?.({
+      thread: {
+        sessionId: "session-1",
+        agentId: "support-agent",
+        title: "Support chat",
+        startedAt: "2026-03-20T12:00:00Z",
+        summary: "Investigate memory analysis behavior",
+        manifestPath: "/tmp/session-1/SESSION.md",
+        turnCount: 4,
+        lastTurnAt: "2026-03-20T12:02:30Z",
+        runtimeConfig: {
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        turns: [
+          {
+            messageId: "m1",
+            sender: "user",
+            createdAt: "2026-03-20T12:02:00Z",
+            bodyMarkdown: "Stream this reply.",
+            relativePath: "turns/m1.md",
+          },
+          {
+            messageId: "m2",
+            sender: "assistant",
+            createdAt: "2026-03-20T12:02:30Z",
+            bodyMarkdown: "Final streamed reply.",
+            thinkingMarkdown: "Check the deploy logs before summarizing.",
+            relativePath: "turns/m2.md",
+          },
+        ],
+      },
+      assistantTurn: {
+        messageId: "m2",
+        sender: "assistant",
+        createdAt: "2026-03-20T12:02:30Z",
+        bodyMarkdown: "Final streamed reply.",
+        thinkingMarkdown: "Check the deploy logs before summarizing.",
+        relativePath: "turns/m2.md",
+      },
+    });
+
+    expect(await screen.findByText("Final streamed reply.")).not.toBeNull();
+    const finalThinkingPanel = screen
+      .getByText("Thinking process")
+      .closest("details");
+    expect(finalThinkingPanel?.hasAttribute("open")).toBe(false);
   });
 
   it("shows an agent badge when another session completed in the background", async () => {

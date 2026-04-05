@@ -76,6 +76,13 @@ function createMockSession(options?: {
   };
 }
 
+function createNdjsonResponse(lines: string[]): Response {
+  return new Response(`${lines.join("\n\n")}\n\n`, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 describe("ChatRuntimeService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -794,6 +801,440 @@ describe("ChatRuntimeService", () => {
     });
 
     expect(result.assistantText).toBe("Visible answer.");
+  });
+
+  it("falls back to Gemma reasoning_content when LM Studio leaves content empty", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content: "",
+                reasoning_content:
+                  "Here is the full Gemma response that LM Studio kept out of message.content.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "gemma-reasoning-fallback",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe(
+      "Here is the full Gemma response that LM Studio kept out of message.content."
+    );
+    expect(result.thinkingText).toBeUndefined();
+  });
+
+  it("prefers the fuller Gemma reasoning_content when content is only partial", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 14,
+          },
+          choices: [
+            {
+              message: {
+                content: "Partial Gemma answer",
+                reasoning_content:
+                  "Partial Gemma answer that continues with the rest of the visible response.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "gemma-partial-content-fallback",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe(
+      "Partial Gemma answer that continues with the rest of the visible response."
+    );
+    expect(result.thinkingText).toBeUndefined();
+  });
+
+  it("falls back to Gemma reasoning parts when LM Studio returns array payloads", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content: [],
+                reasoning: [
+                  {
+                    type: "thinking",
+                    thinking: "Hidden reasoning.",
+                  },
+                  {
+                    type: "text",
+                    text: "Recovered Gemma answer.",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "gemma-reasoning-array-fallback",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe("Recovered Gemma answer.");
+    expect(result.thinkingText).toBe("Hidden reasoning.");
+  });
+
+  it("streams LM Studio assistant snapshots while preserving Gemma reasoning output", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      createNdjsonResponse([
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"delta":{"content":"Partial Gemma answer"},"finish_reason":null}]}',
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"delta":{"reasoning_content":"Partial Gemma answer that continues with the rest of the visible response."},"finish_reason":null}],"usage":{"prompt_tokens":18,"completion_tokens":14}}',
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"finish_reason":"stop"}]}',
+        "data: [DONE]",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+    const snapshots: Array<{
+      assistantText?: string;
+      thinkingText?: string;
+    }> = [];
+
+    const result = await runtime.streamMessage(
+      {
+        agentId: "chat-agent",
+        sessionId: "lmstudio-stream-session",
+        prompt: "Answer the question.",
+        config: {
+          provider: "lmstudio",
+          model: "google/gemma-4-e4b",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+      (snapshot) => {
+        snapshots.push(snapshot);
+      }
+    );
+
+    expect(snapshots).toEqual([
+      { assistantText: "Partial Gemma answer" },
+      {
+        assistantText:
+          "Partial Gemma answer that continues with the rest of the visible response.",
+      },
+    ]);
+    expect(result.assistantText).toBe(
+      "Partial Gemma answer that continues with the rest of the visible response."
+    );
+    expect(result.thinkingText).toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:1234/v1/chat/completions",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+        body: expect.stringContaining('"stream":true'),
+      })
+    );
+  });
+
+  it("separates LM Studio thinking blocks from the visible response", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 14,
+          },
+          choices: [
+            {
+              message: {
+                content:
+                  "<think>Compare the build timeline with the deploy log.</think>\n\nThe deploy stalled on a migration lock.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    const result = await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "gemma-thinking-separation",
+      prompt: "Answer the question.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    expect(result.assistantText).toBe(
+      "The deploy stalled on a migration lock."
+    );
+    expect(result.thinkingText).toBe(
+      "Compare the build timeline with the deploy log."
+    );
+  });
+
+  it("streams LM Studio thinking snapshots separately from the visible response", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      createNdjsonResponse([
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"delta":{"content":"<think>Review the deployment log.</think>"},"finish_reason":null}]}',
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"delta":{"content":"The deploy stalled on a migration lock."},"finish_reason":null}],"usage":{"prompt_tokens":18,"completion_tokens":14}}',
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"finish_reason":"stop"}]}',
+        "data: [DONE]",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+    const snapshots: Array<{
+      assistantText?: string;
+      thinkingText?: string;
+    }> = [];
+
+    const result = await runtime.streamMessage(
+      {
+        agentId: "chat-agent",
+        sessionId: "lmstudio-thinking-stream-session",
+        prompt: "Answer the question.",
+        config: {
+          provider: "lmstudio",
+          model: "google/gemma-4-e4b",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+      (snapshot) => {
+        snapshots.push(snapshot);
+      }
+    );
+
+    expect(snapshots).toEqual([
+      { thinkingText: "Review the deployment log." },
+      {
+        assistantText: "The deploy stalled on a migration lock.",
+        thinkingText: "Review the deployment log.",
+      },
+    ]);
+    expect(result.assistantText).toBe(
+      "The deploy stalled on a migration lock."
+    );
+    expect(result.thinkingText).toBe("Review the deployment log.");
   });
 
   it("surfaces a clear timeout error when LM Studio is too slow to reply", async () => {

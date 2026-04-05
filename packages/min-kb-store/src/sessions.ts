@@ -46,6 +46,7 @@ export interface SaveChatTurnInput {
   agentId: string;
   sender: TurnSender;
   bodyMarkdown: string;
+  thinkingMarkdown?: string;
   title?: string;
   sessionId?: string;
   summary?: string;
@@ -123,6 +124,7 @@ export async function saveChatTurn(
   );
   await fs.mkdir(turnsRoot, { recursive: true });
   const turnPath = path.join(turnsRoot, turnFilename(createdAt, sender));
+  const thinkingMarkdown = input.thinkingMarkdown?.trimEnd();
   const attachment = input.attachment
     ? await writeTurnAttachment(
         workspace,
@@ -136,10 +138,14 @@ export async function saveChatTurn(
     renderTurn(sender, input.bodyMarkdown, createdAt),
     "utf8"
   );
-  if (attachment) {
+  const metadata = {
+    ...(attachment ? { attachment } : {}),
+    ...(thinkingMarkdown ? { thinkingMarkdown } : {}),
+  };
+  if (Object.keys(metadata).length > 0) {
     await fs.writeFile(
       turnMetadataPath(turnPath),
-      `${JSON.stringify({ attachment }, null, 2)}\n`,
+      `${JSON.stringify(metadata, null, 2)}\n`,
       "utf8"
     );
   }
@@ -377,19 +383,27 @@ async function parseTurn(
 
   const metadataRaw = await readOptionalFile(turnMetadataPath(turnPath));
   const parsedMetadata = metadataRaw
-    ? (JSON.parse(metadataRaw) as { attachment?: unknown })
+    ? (JSON.parse(metadataRaw) as {
+        attachment?: unknown;
+        thinkingMarkdown?: unknown;
+      })
     : undefined;
   const attachment = parsedMetadata?.attachment
     ? storedAttachmentSchema.parse(parsedMetadata.attachment)
     : undefined;
+  const thinkingMarkdown =
+    typeof parsedMetadata?.thinkingMarkdown === "string"
+      ? parsedMetadata.thinkingMarkdown
+      : undefined;
 
   return {
     messageId: path.basename(turnPath, ".md"),
     sender: senderSchema.parse(sender.trim()) as TurnSender,
     createdAt: createdAtFromTurnPath(turnPath),
     bodyMarkdown: bodyMarkdown.trimEnd(),
+    ...(thinkingMarkdown ? { thinkingMarkdown } : {}),
     relativePath: toPosixRelative(workspace.storeRoot, turnPath),
-    attachment,
+    ...(attachment ? { attachment } : {}),
   };
 }
 

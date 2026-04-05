@@ -310,6 +310,7 @@ export const chatTurnSchema = z.object({
   sender: senderSchema,
   createdAt: z.string().min(1),
   bodyMarkdown: z.string(),
+  thinkingMarkdown: z.string().optional(),
   relativePath: z.string().min(1),
   attachment: storedAttachmentSchema.optional(),
 });
@@ -689,6 +690,37 @@ export const chatResponseSchema = z.object({
   assistantTurn: chatTurnSchema,
 });
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
+
+const assistantSnapshotEventSchema = z
+  .object({
+    type: z.literal("assistant_snapshot"),
+    assistantText: z.string().optional(),
+    thinkingText: z.string().optional(),
+  })
+  .refine(
+    (event) =>
+      Boolean(event.assistantText?.trim() || event.thinkingText?.trim()),
+    {
+      message: "Assistant snapshots must include assistant or thinking text.",
+    }
+  );
+
+export const chatStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("thread"),
+    thread: chatSessionSchema,
+  }),
+  assistantSnapshotEventSchema,
+  z.object({
+    type: z.literal("complete"),
+    response: chatResponseSchema,
+  }),
+  z.object({
+    type: z.literal("error"),
+    error: z.string().min(1),
+  }),
+]);
+export type ChatStreamEvent = z.infer<typeof chatStreamEventSchema>;
 
 export const orchestratorSessionCreateSchema = z.object({
   title: z.string().min(1).optional(),

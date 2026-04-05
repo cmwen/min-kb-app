@@ -270,6 +270,46 @@ describe("chat history persistence", () => {
     );
     expect(stored).toBe("test");
   });
+
+  it("persists assistant thinking metadata separately from the visible body", async () => {
+    const root = await createStoreFixture();
+    const workspace = await resolveWorkspace({ storeRoot: root });
+
+    await saveChatTurn(workspace, {
+      agentId: "coding-agent",
+      title: "Reasoning separation",
+      sender: "user",
+      bodyMarkdown: "Explain the incident.",
+      createdAt: "2026-03-20T09:00:00Z",
+    });
+
+    const thread = await saveChatTurn(workspace, {
+      agentId: "coding-agent",
+      sessionId: "2026-03-20-reasoning-separation",
+      sender: "assistant",
+      bodyMarkdown: "The deploy stalled on a database lock.",
+      thinkingMarkdown: "Compare the migration log with the deploy timeline.",
+      createdAt: "2026-03-20T09:01:00Z",
+    });
+
+    expect(thread.turns[1]?.bodyMarkdown).toBe(
+      "The deploy stalled on a database lock."
+    );
+    expect(thread.turns[1]?.thinkingMarkdown).toBe(
+      "Compare the migration log with the deploy timeline."
+    );
+
+    const metadataPath = path.join(
+      root,
+      `${thread.turns[1]?.relativePath ?? ""}.json`
+    );
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+      thinkingMarkdown?: string;
+    };
+    expect(metadata.thinkingMarkdown).toBe(
+      "Compare the migration log with the deploy timeline."
+    );
+  });
 });
 
 async function createStoreFixture(): Promise<string> {

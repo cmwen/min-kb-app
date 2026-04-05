@@ -7,6 +7,7 @@ It combines a local runtime host, a basic CLI, and a PWA web UI around the Markd
 - browse agents and sessions from `min-kb-store`
 - resume chats using GitHub Copilot SDK sessions
 - switch chat sessions between the GitHub Copilot runtime, the Gemini SDK runtime, and a local LM Studio provider
+- stream in-progress chat replies in the web UI, including slow local LM Studio runs
 - delegate async tmux-backed jobs through the built-in `copilot-orchestrator` agent with either the `copilot` or `gemini` CLI
 - ship a repo-local Copilot implementation team under `.github/agents/` with an orchestrator plus UX, architecture, engineering, QA, and documentation specialists
 - manage recurring scheduled chats through the built-in `copilot-schedule` agent

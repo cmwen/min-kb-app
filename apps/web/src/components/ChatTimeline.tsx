@@ -6,6 +6,8 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 interface ChatTimelineProps {
   thread?: ChatSession;
   pending: boolean;
+  pendingAssistantText?: string;
+  pendingThinkingText?: string;
   error?: string;
 }
 
@@ -41,7 +43,11 @@ export function ChatTimeline(props: ChatTimelineProps) {
             <span>{turn.sender}</span>
             <time>{new Date(turn.createdAt).toLocaleString()}</time>
           </header>
-          <MarkdownRenderer>{turn.bodyMarkdown}</MarkdownRenderer>
+          {turn.sender === "assistant" ? (
+            renderAssistantSections(turn.bodyMarkdown, turn.thinkingMarkdown)
+          ) : (
+            <MarkdownRenderer>{turn.bodyMarkdown}</MarkdownRenderer>
+          )}
           {turn.attachment ? (
             <div className="message-attachment">
               {turn.attachment.mediaType === "image" ? (
@@ -80,9 +86,23 @@ export function ChatTimeline(props: ChatTimelineProps) {
           ) : null}
         </article>
       ))}
+      {props.pendingAssistantText || props.pendingThinkingText ? (
+        <article className="message-bubble assistant">
+          <header>
+            <span>assistant</span>
+            <time>{new Date().toLocaleString()}</time>
+          </header>
+          {renderAssistantSections(
+            props.pendingAssistantText,
+            props.pendingThinkingText
+          )}
+        </article>
+      ) : null}
       {props.pending ? (
         <div className="activity-row" role="status">
-          Thinking…
+          {props.pendingAssistantText || props.pendingThinkingText
+            ? "Streaming…"
+            : "Thinking…"}
         </div>
       ) : null}
       {props.error ? (
@@ -91,5 +111,37 @@ export function ChatTimeline(props: ChatTimelineProps) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function renderAssistantSections(
+  assistantText?: string,
+  thinkingText?: string
+) {
+  const hasAssistantText = Boolean(assistantText?.trim());
+  const hasThinkingText = Boolean(thinkingText?.trim());
+  if (!hasAssistantText && !hasThinkingText) {
+    return null;
+  }
+
+  return (
+    <div className="assistant-message-sections">
+      {hasAssistantText ? (
+        <section className="assistant-response-section" aria-label="Response">
+          {hasThinkingText ? (
+            <div className="assistant-section-label">Response</div>
+          ) : null}
+          <MarkdownRenderer>{assistantText ?? ""}</MarkdownRenderer>
+        </section>
+      ) : null}
+      {hasThinkingText ? (
+        <details className="assistant-thinking-panel">
+          <summary>Thinking process</summary>
+          <MarkdownRenderer className="assistant-thinking-markdown">
+            {thinkingText ?? ""}
+          </MarkdownRenderer>
+        </details>
+      ) : null}
+    </div>
   );
 }

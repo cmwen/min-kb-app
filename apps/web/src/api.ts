@@ -4,6 +4,7 @@ import type {
   ChatResponse,
   ChatSession,
   ChatSessionSummary,
+  ChatStreamEvent,
   MemoryAnalysisRequest,
   MemoryAnalysisResponse,
   ModelCatalog,
@@ -23,6 +24,7 @@ import type {
   SkillDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
+import { chatStreamEventSchema } from "@min-kb-app/shared";
 
 export const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -71,6 +73,25 @@ export const api = {
         },
         body: JSON.stringify(requestBody),
       }
+    ),
+  sendMessageStream: (
+    agentId: string,
+    sessionId: string | undefined,
+    requestBody: ChatRequest,
+    onEvent: (event: ChatStreamEvent) => void
+  ) =>
+    requestNdjson(
+      sessionId
+        ? `/api/agents/${agentId}/sessions/${sessionId}/messages/stream`
+        : `/api/agents/${agentId}/sessions/stream`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      },
+      onEvent
     ),
   getOrchestratorCapabilities: () =>
     request<OrchestratorCapabilities>("/api/orchestrator/capabilities"),
@@ -222,4 +243,58 @@ async function request<T>(resource: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+async function requestNdjson(
+  resource: string,
+  init: RequestInit | undefined,
+  onEvent: (event: ChatStreamEvent) => void
+): Promise<ChatResponse> {
+  const response = await fetch(`${API_ROOT}${resource}`, init);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Request failed with status ${response.status}.`);
+  }
+  if (!response.body) {
+    throw new Error("Streaming response body was empty.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResponse: ChatResponse | undefined;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        const event = chatStreamEventSchema.parse(
+          JSON.parse(line) as ChatStreamEvent
+        );
+        onEvent(event);
+        if (event.type === "error") {
+          throw new Error(event.error);
+        }
+        if (event.type === "complete") {
+          finalResponse = event.response;
+        }
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  if (!finalResponse) {
+    throw new Error("Streaming response ended before completion.");
+  }
+
+  return finalResponse;
 }

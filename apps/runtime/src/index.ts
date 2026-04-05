@@ -20,6 +20,7 @@ import {
 } from "@min-kb-app/min-kb-store";
 import type {
   ChatRequest,
+  ChatStreamEvent,
   MemoryAnalysisEntryChange,
   MemoryAnalysisRequest,
   MemoryEntry,
@@ -50,7 +51,7 @@ import {
   scheduleTaskUpdateSchema,
 } from "@min-kb-app/shared";
 import { type Context, Hono } from "hono";
-import { runChatFlow } from "./chat-flow.js";
+import { runChatFlow, runChatFlowStream } from "./chat-flow.js";
 import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import {
   buildMemoryAnalysisPrompt,
@@ -290,6 +291,33 @@ app.post("/api/agents/:agentId/sessions", async (context) => {
   );
 });
 
+app.post("/api/agents/:agentId/sessions/stream", async (context) => {
+  const agentId = context.req.param("agentId");
+  if (agentId === ORCHESTRATOR_AGENT_ID) {
+    return context.json(
+      {
+        error:
+          "Use the dedicated orchestrator session endpoint for the built-in orchestrator agent.",
+      },
+      400
+    );
+  }
+  if (agentId === SCHEDULE_AGENT_ID) {
+    return context.json(
+      {
+        error:
+          "Use the dedicated scheduled chat task endpoints for the built-in schedules agent.",
+      },
+      400
+    );
+  }
+
+  const request = chatRequestSchema.parse(
+    (await context.req.json()) satisfies ChatRequest
+  );
+  return streamChatResponse(context, agentId, request, request.sessionId);
+});
+
 app.post(
   "/api/agents/:agentId/sessions/:sessionId/messages",
   async (context) => {
@@ -324,6 +352,41 @@ app.post(
         request,
         context.req.param("sessionId")
       )
+    );
+  }
+);
+
+app.post(
+  "/api/agents/:agentId/sessions/:sessionId/messages/stream",
+  async (context) => {
+    const agentId = context.req.param("agentId");
+    if (agentId === ORCHESTRATOR_AGENT_ID) {
+      return context.json(
+        {
+          error:
+            "Use the dedicated orchestrator job endpoint for the built-in orchestrator agent.",
+        },
+        400
+      );
+    }
+    if (agentId === SCHEDULE_AGENT_ID) {
+      return context.json(
+        {
+          error:
+            "Use the dedicated scheduled chat task endpoints for the built-in schedules agent.",
+        },
+        400
+      );
+    }
+
+    const request = chatRequestSchema.parse(
+      (await context.req.json()) satisfies ChatRequest
+    );
+    return streamChatResponse(
+      context,
+      agentId,
+      request,
+      context.req.param("sessionId")
     );
   }
 );
@@ -502,6 +565,74 @@ app.post("/api/scheduled-chats/tasks/:taskId/run-now", async (context) => {
 app.get("/api/orchestrator/sessions/:sessionId/stream", async (context) => {
   return streamOrchestratorTerminal(context, context.req.param("sessionId"));
 });
+
+function writeNdjsonEvent(
+  outgoing: HttpBindings["outgoing"],
+  event: ChatStreamEvent
+) {
+  outgoing.write(`${JSON.stringify(event)}\n`);
+}
+
+async function streamChatResponse(
+  context: Context<{ Bindings: HttpBindings }>,
+  agentId: string,
+  request: ChatRequest,
+  forcedSessionId?: string
+) {
+  const { incoming, outgoing } = context.env;
+  let closed = false;
+
+  const cleanup = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    outgoing.end();
+  };
+
+  const sendEvent = (event: ChatStreamEvent) => {
+    if (closed) {
+      return;
+    }
+    writeNdjsonEvent(outgoing, event);
+  };
+
+  outgoing.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    connection: "keep-alive",
+  });
+
+  incoming.on("close", cleanup);
+  void (async () => {
+    try {
+      const response = await runChatFlowStream(
+        workspace,
+        runtime,
+        agentId,
+        request,
+        (thread) => sendEvent({ type: "thread", thread }),
+        (snapshot) =>
+          sendEvent({
+            type: "assistant_snapshot",
+            assistantText: snapshot.assistantText,
+            thinkingText: snapshot.thinkingText,
+          }),
+        forcedSessionId
+      );
+      sendEvent({ type: "complete", response });
+    } catch (error) {
+      sendEvent({
+        type: "error",
+        error: getHttpErrorMessage(error),
+      });
+    } finally {
+      cleanup();
+    }
+  })();
+
+  return RESPONSE_ALREADY_SENT;
+}
 
 app.get("/", async (context) => serveWebRequest(context, "/"));
 app.get("/*", async (context) => serveWebRequest(context, context.req.path));

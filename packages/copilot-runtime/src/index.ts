@@ -65,9 +65,19 @@ interface NormalizedSendRuntimeMessageInput
 
 export interface SendRuntimeMessageResult {
   assistantText: string;
+  thinkingText?: string;
   llmStats?: LlmRequestStats;
   sessionDiagnostics?: SessionDiagnostics;
 }
+
+export interface RuntimeAssistantSnapshot {
+  assistantText?: string;
+  thinkingText?: string;
+}
+
+export type RuntimeAssistantSnapshotHandler = (
+  snapshot: RuntimeAssistantSnapshot
+) => void;
 
 interface LoadedSkillDiagnostic {
   name: string;
@@ -93,6 +103,10 @@ interface RuntimeProvider {
   listModels(): Promise<ModelDescriptor[]>;
   sendMessage(
     input: NormalizedSendRuntimeMessageInput
+  ): Promise<SendRuntimeMessageResult>;
+  streamMessage(
+    input: NormalizedSendRuntimeMessageInput,
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
   ): Promise<SendRuntimeMessageResult>;
   stop(): Promise<void>;
 }
@@ -166,6 +180,26 @@ export class ChatRuntimeService {
   async sendMessage(
     input: SendRuntimeMessageInput
   ): Promise<SendRuntimeMessageResult> {
+    const normalizedInput = await this.normalizeSendRuntimeMessageInput(input);
+    return this.getProvider(normalizedInput.config.provider).sendMessage(
+      normalizedInput
+    );
+  }
+
+  async streamMessage(
+    input: SendRuntimeMessageInput,
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+  ): Promise<SendRuntimeMessageResult> {
+    const normalizedInput = await this.normalizeSendRuntimeMessageInput(input);
+    return this.getProvider(normalizedInput.config.provider).streamMessage(
+      normalizedInput,
+      onAssistantSnapshot
+    );
+  }
+
+  private async normalizeSendRuntimeMessageInput(
+    input: SendRuntimeMessageInput
+  ): Promise<NormalizedSendRuntimeMessageInput> {
     const agent = await getAgentById(this.workspace, input.agentId);
     const parsedConfig = mergeChatRuntimeConfigs(
       agent?.runtimeConfig,
@@ -176,11 +210,11 @@ export class ChatRuntimeService {
       parsedConfig,
       await provider.listModels()
     );
-    return this.getProvider(normalizedConfig.provider).sendMessage({
+    return {
       ...input,
       agent,
       config: normalizedConfig,
-    });
+    };
   }
 
   private getProvider(providerId: string): RuntimeProvider {
@@ -233,6 +267,20 @@ class CopilotRuntimeProvider implements RuntimeProvider {
   async sendMessage(
     input: NormalizedSendRuntimeMessageInput
   ): Promise<SendRuntimeMessageResult> {
+    return this.runSession(input);
+  }
+
+  async streamMessage(
+    input: NormalizedSendRuntimeMessageInput,
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+  ): Promise<SendRuntimeMessageResult> {
+    return this.runSession(input, onAssistantSnapshot);
+  }
+
+  private async runSession(
+    input: NormalizedSendRuntimeMessageInput,
+    onAssistantSnapshot?: RuntimeAssistantSnapshotHandler
+  ): Promise<SendRuntimeMessageResult> {
     const session = await this.openSession(
       input.agentId,
       input.sessionId,
@@ -250,7 +298,8 @@ class CopilotRuntimeProvider implements RuntimeProvider {
     try {
       const response = await this.sendAndWaitForCompletion(
         session,
-        input.prompt
+        input.prompt,
+        onAssistantSnapshot
       );
       await sessionDiagnostics.waitForIdle();
       const assistantText =
@@ -278,7 +327,8 @@ class CopilotRuntimeProvider implements RuntimeProvider {
 
   private async sendAndWaitForCompletion(
     session: Awaited<ReturnType<CopilotClient["createSession"]>>,
-    prompt: string
+    prompt: string,
+    onAssistantSnapshot?: RuntimeAssistantSnapshotHandler
   ): Promise<SettledCopilotResponse> {
     let lastAssistantMessage: AssistantMessageEvent | undefined;
     let latestAssistantText: string | undefined;
@@ -291,6 +341,9 @@ class CopilotRuntimeProvider implements RuntimeProvider {
       if (event.type === "assistant.message") {
         lastAssistantMessage = event;
         latestAssistantText = this.extractAssistantText(event);
+        if (latestAssistantText !== undefined) {
+          onAssistantSnapshot?.({ assistantText: latestAssistantText });
+        }
         return;
       }
       if (event.type === "assistant.message_delta") {
@@ -299,6 +352,7 @@ class CopilotRuntimeProvider implements RuntimeProvider {
         }${event.data.deltaContent}`;
         assistantTextByMessageId.set(event.data.messageId, nextAssistantText);
         latestAssistantText = nextAssistantText;
+        onAssistantSnapshot?.({ assistantText: nextAssistantText });
         return;
       }
       if (event.type === "session.idle") {
@@ -661,6 +715,15 @@ class GeminiRuntimeProvider implements RuntimeProvider {
     };
   }
 
+  async streamMessage(
+    input: NormalizedSendRuntimeMessageInput,
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+  ): Promise<SendRuntimeMessageResult> {
+    const result = await this.sendMessage(input);
+    onAssistantSnapshot({ assistantText: result.assistantText });
+    return result;
+  }
+
   private getClient(): GoogleGenAI {
     this.client ??= new GoogleGenAI(this.clientOptions);
     return this.client;
@@ -910,13 +973,55 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
 
     const completion =
       (await response.json()) as LmStudioChatCompletionResponse;
-    const assistantText = extractLmStudioAssistantText(completion);
-    if (assistantText === undefined) {
+    const sections = extractLmStudioMessageSections(completion);
+    if (sections.assistantText === undefined) {
       throw new Error("LM Studio returned no assistant message content.");
     }
 
     return {
-      assistantText,
+      assistantText: sections.assistantText,
+      thinkingText: sections.thinkingText,
+      llmStats: buildLmStudioUsageStats(
+        completion,
+        input.config.model,
+        Date.now() - startedAt
+      ),
+      sessionDiagnostics,
+    };
+  }
+
+  async streamMessage(
+    input: NormalizedSendRuntimeMessageInput,
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+  ): Promise<SendRuntimeMessageResult> {
+    const startedAt = Date.now();
+    const enabledSkills = await loadEnabledSkillDocumentsForAgent(
+      this.workspace,
+      input.agentId,
+      input.config.disabledSkills
+    );
+    const sessionDiagnostics =
+      buildPromptBackedSessionDiagnostics(enabledSkills);
+    const completion = await this.sendChatCompletionStream(
+      {
+        model: input.config.model,
+        messages: buildLmStudioMessages({
+          conversation: input.conversation ?? [],
+          prompt: input.prompt,
+          agentPrompt: input.agent?.combinedPrompt,
+          enabledSkills,
+        }),
+      },
+      onAssistantSnapshot
+    );
+    const sections = extractLmStudioMessageSections(completion);
+    if (sections.assistantText === undefined) {
+      throw new Error("LM Studio returned no assistant message content.");
+    }
+
+    return {
+      assistantText: sections.assistantText,
+      thinkingText: sections.thinkingText,
       llmStats: buildLmStudioUsageStats(
         completion,
         input.config.model,
@@ -967,6 +1072,51 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
     return response;
   }
 
+  private async sendChatCompletionStream(
+    input: {
+      model: string;
+      messages: Array<{
+        role: "system" | "user" | "assistant";
+        content: string;
+      }>;
+    },
+    onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+  ): Promise<LmStudioChatCompletionResponse> {
+    const attempt = async () =>
+      fetchWithTimeout(
+        `${this.baseUrl}/chat/completions`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: input.model,
+            messages: input.messages,
+            max_completion_tokens: this.maxCompletionTokens,
+            stream: true,
+          }),
+        },
+        this.chatTimeoutMs,
+        "LM Studio chat stream request"
+      );
+    let response = await attempt();
+    if (!response.ok) {
+      const body = await response.text();
+      if (!shouldRetryLmStudioChatAfterModelLoad(response.status, body)) {
+        throw new Error(formatLmStudioChatError(response.status, body));
+      }
+      await this.loadModel(input.model);
+      response = await attempt();
+      if (!response.ok) {
+        const retryBody = await response.text();
+        throw new Error(formatLmStudioChatError(response.status, retryBody));
+      }
+    }
+
+    return readLmStudioChatCompletionStream(response, onAssistantSnapshot);
+  }
+
   private async loadModel(model: string): Promise<void> {
     const response = await fetchWithTimeout(
       `${this.nativeBaseUrl}/api/v1/models/load`,
@@ -1001,16 +1151,24 @@ interface LmStudioChatCompletionResponse {
     completion_tokens?: number;
   };
   choices?: Array<{
-    message?: {
-      content?:
-        | string
-        | Array<{
-            type?: string;
-            text?: string;
-            thinking?: string;
-          }>;
+    delta?: {
+      reasoning?: string | LmStudioContentPart[];
+      reasoning_content?: string | LmStudioContentPart[];
+      content?: string | LmStudioContentPart[];
     };
+    message?: {
+      reasoning?: string | LmStudioContentPart[];
+      reasoning_content?: string | LmStudioContentPart[];
+      content?: string | LmStudioContentPart[];
+    };
+    finish_reason?: string | null;
   }>;
+}
+
+interface LmStudioContentPart {
+  type?: string;
+  text?: string;
+  thinking?: string;
 }
 
 function buildLmStudioMessages(input: {
@@ -1109,45 +1267,295 @@ function mapSenderToOpenAiRole(
   }
 }
 
-function extractLmStudioAssistantText(
+function extractLmStudioMessageSections(
   completion: LmStudioChatCompletionResponse
-): string | undefined {
-  const content = completion.choices?.[0]?.message?.content;
-  if (typeof content === "string") {
-    return stripLmStudioThinkingContent(content) || undefined;
+): RuntimeAssistantSnapshot {
+  const message = completion.choices?.[0]?.message;
+  if (!message) {
+    return {};
   }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        const normalizedType = part.type?.trim().toLowerCase();
-        if (normalizedType === "thinking" || normalizedType === "reasoning") {
-          return "";
-        }
-        return stripLmStudioThinkingContent(part.text ?? "");
-      })
-      .join("")
-      .trim();
-  }
-  return undefined;
+
+  return combineLmStudioSections([
+    extractLmStudioPayloadSections(message.content),
+    extractLmStudioPayloadSections(message.reasoning_content),
+    extractLmStudioPayloadSections(message.reasoning),
+  ]);
 }
 
-function stripLmStudioThinkingContent(content: string): string {
-  let normalizedContent = content;
-
-  for (const pattern of LM_STUDIO_THINKING_BLOCK_PATTERNS) {
-    normalizedContent = normalizedContent.replace(pattern, "");
+async function readLmStudioChatCompletionStream(
+  response: Response,
+  onAssistantSnapshot: RuntimeAssistantSnapshotHandler
+): Promise<LmStudioChatCompletionResponse> {
+  if (!response.body) {
+    throw new Error("LM Studio returned no response body for chat streaming.");
   }
 
-  return normalizedContent.trim();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const accumulator = new LmStudioStreamAccumulator();
+  const completion: LmStudioChatCompletionResponse = {};
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+
+    let boundaryIndex = buffer.indexOf("\n\n");
+    while (boundaryIndex >= 0) {
+      const block = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
+      const chunk = parseLmStudioStreamChunk(block);
+      if (chunk && chunk !== "[DONE]") {
+        mergeLmStudioCompletionChunk(completion, chunk);
+        const snapshot = accumulator.consumeChunk(chunk);
+        if (snapshot) {
+          onAssistantSnapshot(snapshot);
+        }
+      }
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+
+    if (done) {
+      const trailingChunk = parseLmStudioStreamChunk(buffer.trim());
+      if (trailingChunk && trailingChunk !== "[DONE]") {
+        mergeLmStudioCompletionChunk(completion, trailingChunk);
+        const snapshot = accumulator.consumeChunk(trailingChunk);
+        if (snapshot) {
+          onAssistantSnapshot(snapshot);
+        }
+      }
+      break;
+    }
+  }
+
+  const finalSnapshot = combineLmStudioSections([
+    extractLmStudioMessageSections(completion),
+    accumulator.getSnapshot(),
+  ]);
+  if (finalSnapshot.assistantText || finalSnapshot.thinkingText) {
+    completion.choices = [
+      {
+        ...completion.choices?.[0],
+        message: {
+          ...completion.choices?.[0]?.message,
+          ...(finalSnapshot.assistantText
+            ? { content: finalSnapshot.assistantText }
+            : {}),
+          ...(finalSnapshot.thinkingText
+            ? { reasoning: `<think>${finalSnapshot.thinkingText}</think>` }
+            : {}),
+        },
+      },
+    ];
+  }
+
+  return completion;
+}
+
+function parseLmStudioStreamChunk(
+  block: string
+): LmStudioChatCompletionResponse | "[DONE]" | undefined {
+  const data = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .join("\n");
+  if (!data) {
+    return undefined;
+  }
+  if (data === "[DONE]") {
+    return "[DONE]";
+  }
+  return JSON.parse(data) as LmStudioChatCompletionResponse;
+}
+
+function mergeLmStudioCompletionChunk(
+  target: LmStudioChatCompletionResponse,
+  chunk: LmStudioChatCompletionResponse
+): void {
+  target.id = chunk.id ?? target.id;
+  target.created = chunk.created ?? target.created;
+  target.model = chunk.model ?? target.model;
+  target.usage = chunk.usage ?? target.usage;
+  const nextChoice = chunk.choices?.[0];
+  if (!nextChoice) {
+    return;
+  }
+
+  const previousChoice = target.choices?.[0];
+  target.choices = [
+    {
+      ...previousChoice,
+      ...nextChoice,
+      message: nextChoice.message ?? previousChoice?.message,
+      finish_reason: nextChoice.finish_reason ?? previousChoice?.finish_reason,
+    },
+  ];
+}
+
+function combineLmStudioTextCandidates(
+  candidates: Array<string | undefined>
+): string | undefined {
+  const normalizedCandidates = candidates
+    .map((candidate) => candidate?.trim())
+    .filter((candidate): candidate is string => Boolean(candidate));
+  if (normalizedCandidates.length === 0) {
+    return undefined;
+  }
+
+  const dedupedCandidates: string[] = [];
+  for (const candidate of normalizedCandidates) {
+    const containingCandidateIndex = dedupedCandidates.findIndex(
+      (existing) => existing === candidate || candidate.includes(existing)
+    );
+    if (containingCandidateIndex >= 0) {
+      dedupedCandidates[containingCandidateIndex] = candidate;
+      continue;
+    }
+    if (dedupedCandidates.some((existing) => existing.includes(candidate))) {
+      continue;
+    }
+    dedupedCandidates.push(candidate);
+  }
+
+  return dedupedCandidates.join("\n\n") || undefined;
+}
+
+function combineLmStudioSections(
+  sections: RuntimeAssistantSnapshot[]
+): RuntimeAssistantSnapshot {
+  const assistantText = combineLmStudioTextCandidates(
+    sections.map((section) => section.assistantText)
+  );
+  const thinkingText = combineLmStudioTextCandidates(
+    sections.map((section) => section.thinkingText)
+  );
+
+  return {
+    ...(assistantText ? { assistantText } : {}),
+    ...(thinkingText ? { thinkingText } : {}),
+  };
+}
+
+function extractLmStudioPayloadSections(
+  payload: string | LmStudioContentPart[] | undefined
+): RuntimeAssistantSnapshot {
+  const split = splitLeadingLmStudioThinkingBlocks(
+    extractLmStudioRawPayload(payload)
+  );
+  const assistantText = split.remainingContent || undefined;
+  const thinkingText = combineLmStudioTextCandidates(split.thinkingBlocks);
+  return {
+    ...(assistantText ? { assistantText } : {}),
+    ...(thinkingText ? { thinkingText } : {}),
+  };
+}
+
+function extractLmStudioRawPayload(
+  payload: string | LmStudioContentPart[] | undefined
+): string {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  if (!Array.isArray(payload)) {
+    return "";
+  }
+
+  return payload
+    .map((part) => {
+      const normalizedType = part.type?.trim().toLowerCase();
+      if (normalizedType === "thinking" || normalizedType === "reasoning") {
+        const thinkingText = (part.thinking ?? part.text ?? "").trim();
+        return thinkingText ? `<think>${thinkingText}</think>` : "";
+      }
+
+      return part.text ?? "";
+    })
+    .join("");
+}
+
+function splitLeadingLmStudioThinkingBlocks(content: string): {
+  thinkingBlocks: string[];
+  remainingContent: string;
+} {
+  const thinkingBlocks: string[] = [];
+  let remainingContent = content;
+
+  while (true) {
+    const pattern = LM_STUDIO_THINKING_BLOCK_PATTERNS.find((candidate) =>
+      candidate.test(remainingContent)
+    );
+    if (!pattern) {
+      break;
+    }
+
+    const match = remainingContent.match(pattern);
+    if (!match) {
+      break;
+    }
+    const thinkingText = match[1]?.trim();
+    if (thinkingText) {
+      thinkingBlocks.push(thinkingText);
+    }
+    remainingContent = remainingContent.slice(match[0].length);
+  }
+
+  return {
+    thinkingBlocks,
+    remainingContent: remainingContent.trim(),
+  };
 }
 
 const LM_STUDIO_THINKING_BLOCK_PATTERNS = [
-  /^\s*<think>\s*[\s\S]*?<\/think>\s*/gi,
-  /^\s*<thinking>\s*[\s\S]*?<\/thinking>\s*/gi,
-  /^\s*<reasoning>\s*[\s\S]*?<\/reasoning>\s*/gi,
-  /^\s*\[think(?:ing)?\]\s*[\s\S]*?\[\/think(?:ing)?\]\s*/gi,
-  /^\s*\{think(?:ing)?\}\s*[\s\S]*?\{\/think(?:ing)?\}\s*/gi,
+  /^\s*<think>\s*([\s\S]*?)\s*<\/think>\s*/i,
+  /^\s*<thinking>\s*([\s\S]*?)\s*<\/thinking>\s*/i,
+  /^\s*<reasoning>\s*([\s\S]*?)\s*<\/reasoning>\s*/i,
+  /^\s*\[think(?:ing)?\]\s*([\s\S]*?)\s*\[\/think(?:ing)?\]\s*/i,
+  /^\s*\{think(?:ing)?\}\s*([\s\S]*?)\s*\{\/think(?:ing)?\}\s*/i,
 ];
+
+class LmStudioStreamAccumulator {
+  private content = "";
+  private reasoning = "";
+  private reasoningContent = "";
+  private assistantText: string | undefined;
+  private thinkingText: string | undefined;
+
+  consumeChunk(
+    chunk: LmStudioChatCompletionResponse
+  ): RuntimeAssistantSnapshot | undefined {
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) {
+      return undefined;
+    }
+
+    this.content += extractLmStudioRawPayload(delta.content);
+    this.reasoningContent += extractLmStudioRawPayload(delta.reasoning_content);
+    this.reasoning += extractLmStudioRawPayload(delta.reasoning);
+    const nextSnapshot = combineLmStudioSections([
+      extractLmStudioPayloadSections(this.content),
+      extractLmStudioPayloadSections(this.reasoningContent),
+      extractLmStudioPayloadSections(this.reasoning),
+    ]);
+    if (
+      nextSnapshot.assistantText === this.assistantText &&
+      nextSnapshot.thinkingText === this.thinkingText
+    ) {
+      return undefined;
+    }
+    this.assistantText = nextSnapshot.assistantText;
+    this.thinkingText = nextSnapshot.thinkingText;
+    return nextSnapshot;
+  }
+
+  getSnapshot(): RuntimeAssistantSnapshot {
+    return {
+      ...(this.assistantText ? { assistantText: this.assistantText } : {}),
+      ...(this.thinkingText ? { thinkingText: this.thinkingText } : {}),
+    };
+  }
+}
 
 function buildLmStudioUsageStats(
   completion: LmStudioChatCompletionResponse,
