@@ -40,14 +40,41 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        navigateFallback: `${base}index.html`,
         runtimeCaching: [
           {
             urlPattern: apiRuntimeCachePattern,
             handler: "NetworkFirst",
             options: {
               cacheName: "api-cache",
-              networkTimeoutSeconds: 2,
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60,
+              },
+              networkTimeoutSeconds: 1,
+            },
+          },
+          {
+            urlPattern: ({ request }) =>
+              ["style", "script", "worker", "image", "font"].includes(
+                request.destination
+              ),
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "asset-runtime-cache",
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
             },
           },
         ],

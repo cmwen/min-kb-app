@@ -3,6 +3,7 @@ import type {
   ChatProviderDescriptor,
   ChatRequest,
   ChatRuntimeConfig,
+  ChatSession,
   ChatSessionSummary,
   ModelDescriptor,
   WorkspaceSummary,
@@ -36,6 +37,7 @@ export interface CachedSnapshot {
   defaultProvider: string;
   models: ModelDescriptor[];
   sessionsByAgent: Record<string, ChatSessionSummary[]>;
+  threadsByKey: Record<string, ChatSession>;
 }
 
 export interface QueuedMessage {
@@ -64,6 +66,7 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
+      threadsByKey: {},
     };
   }
 
@@ -75,6 +78,7 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: parsed.defaultProvider ?? DEFAULT_CHAT_PROVIDER,
       models: parsed.models ?? [],
       sessionsByAgent: parsed.sessionsByAgent ?? {},
+      threadsByKey: normalizeCachedThreads(parsed.threadsByKey),
       workspace: parsed.workspace,
     };
   } catch {
@@ -84,12 +88,21 @@ export function loadSnapshot(): CachedSnapshot {
       defaultProvider: DEFAULT_CHAT_PROVIDER,
       models: [],
       sessionsByAgent: {},
+      threadsByKey: {},
     };
   }
 }
 
 export function saveSnapshot(snapshot: CachedSnapshot): void {
   localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
+function normalizeCachedThreads(raw: unknown): Record<string, ChatSession> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+
+  return raw as Record<string, ChatSession>;
 }
 
 export function loadQueue(): QueuedMessage[] {

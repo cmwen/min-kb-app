@@ -78,6 +78,8 @@ import {
 
 const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
 const SCHEDULE_AGENT_ID = "copilot-schedule";
+const MAX_CACHED_THREAD_COUNT = 3;
+const MAX_CACHED_THREAD_TURNS = 30;
 
 type DangerAction =
   | {
@@ -188,7 +190,16 @@ export default function App() {
     Record<string, ChatSessionSummary[]>
   >(cachedSnapshot.sessionsByAgent);
   const [threadsByKey, setThreadsByKey] = useState<Record<string, ChatSession>>(
-    {}
+    cachedSnapshot.threadsByKey
+  );
+  const [staleThreadKeys, setStaleThreadKeys] = useState<Record<string, true>>(
+    () =>
+      Object.fromEntries(
+        Object.keys(cachedSnapshot.threadsByKey).map((threadKey) => [
+          threadKey,
+          true,
+        ])
+      )
   );
   const [skills, setSkills] = useState<SkillDescriptor[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(
@@ -417,8 +428,17 @@ export default function App() {
       defaultProvider,
       models,
       sessionsByAgent,
+      threadsByKey: compactThreadsForSnapshot(threadsByKey),
     });
-  }, [workspace, agents, providers, defaultProvider, models, sessionsByAgent]);
+  }, [
+    workspace,
+    agents,
+    providers,
+    defaultProvider,
+    models,
+    sessionsByAgent,
+    threadsByKey,
+  ]);
 
   useEffect(() => {
     saveQueue(queue);
@@ -558,6 +578,12 @@ export default function App() {
       );
       setConfig(runtimeConfig);
       setMcpText(JSON.stringify(runtimeConfig.mcpServers, null, 2));
+      if (
+        staleThreadKeys[nextThreadKey] &&
+        !(sessionLoadPending && sessionLoadTarget === nextThreadKey)
+      ) {
+        void openSession(selectedAgentId, selectedSessionId);
+      }
       return;
     }
 
@@ -581,6 +607,7 @@ export default function App() {
     orchestratorSessionsById,
     scheduleTasksById,
     models,
+    staleThreadKeys,
     sessionLoadPending,
     sessionLoadTarget,
   ]);
@@ -832,6 +859,14 @@ export default function App() {
       const thread = await api.getSession(agentId, sessionId);
       const nextThreadKey = `${agentId}:${sessionId}`;
       setThreadsByKey((current) => ({ ...current, [nextThreadKey]: thread }));
+      setStaleThreadKeys((current) => {
+        if (!(nextThreadKey in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[nextThreadKey];
+        return next;
+      });
       const runtimeConfig = normalizeConfigForModel(
         thread.runtimeConfig ??
           buildDefaultConfig(
@@ -1602,6 +1637,14 @@ export default function App() {
       ...current,
       [nextThreadKey]: thread,
     }));
+    setStaleThreadKeys((current) => {
+      if (!(nextThreadKey in current)) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[nextThreadKey];
+      return next;
+    });
     setSessionsByAgent((current) => {
       const existing = current[thread.agentId] ?? [];
       const withoutCurrent = existing.filter(
@@ -1667,6 +1710,11 @@ export default function App() {
       clearSessionNotificationAck(current, agentId, sessionId)
     );
     setThreadsByKey((current) => {
+      const next = { ...current };
+      delete next[`${agentId}:${sessionId}`];
+      return next;
+    });
+    setStaleThreadKeys((current) => {
       const next = { ...current };
       delete next[`${agentId}:${sessionId}`];
       return next;
@@ -2015,6 +2063,12 @@ export default function App() {
                     models
                   )
                 )
+              }
+              onLmStudioEnableThinkingChange={(lmStudioEnableThinking) =>
+                setConfig((current) => ({
+                  ...current,
+                  lmStudioEnableThinking,
+                }))
               }
               onSkillToggle={handleToggleSkill}
               onMcpTextChange={handleMcpTextChange}
@@ -2383,6 +2437,31 @@ function buildScheduledTaskSummary(
         ? task.lastRunStatus
         : undefined,
   };
+}
+
+function compactThreadsForSnapshot(
+  threadsByKey: Record<string, ChatSession>
+): Record<string, ChatSession> {
+  return Object.fromEntries(
+    Object.entries(threadsByKey)
+      .sort(
+        ([, left], [, right]) =>
+          getThreadActivityTimestamp(right) - getThreadActivityTimestamp(left)
+      )
+      .slice(0, MAX_CACHED_THREAD_COUNT)
+      .map(([threadKey, thread]) => [
+        threadKey,
+        {
+          ...thread,
+          turns: thread.turns.slice(-MAX_CACHED_THREAD_TURNS),
+        },
+      ])
+  );
+}
+
+function getThreadActivityTimestamp(thread: ChatSession): number {
+  const timestamp = Date.parse(thread.lastTurnAt ?? thread.startedAt);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function clearSessionNotificationAck(

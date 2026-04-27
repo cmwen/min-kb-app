@@ -1441,10 +1441,13 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               }
             />
           </label>
-          <div className="composer-footer">
+          <div className="composer-footer orchestrator-delegate-footer">
             <div className="composer-meta">
-              <span>
-                {`Uses \`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo -p ${props.session.executionMode === "fleet" ? "'/fleet ...'" : "..."}\``}
+              <span className="orchestrator-command-hint">
+                Uses{" "}
+                <code>
+                  {`copilot --model ${props.session.model}${props.session.selectedCustomAgentId ? ` --agent ${props.session.selectedCustomAgentId}` : ""} --yolo -p ${props.session.executionMode === "fleet" ? "'/fleet ...'" : "..."}`}
+                </code>
               </span>
               <span>
                 Custom agent: {selectedSavedCustomAgent?.name ?? "None"}

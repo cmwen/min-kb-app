@@ -87,7 +87,7 @@ packages/
    pnpm --filter @min-kb-app/cli dev agents
    pnpm --filter @min-kb-app/cli dev chat coding-agent
    pnpm --filter @min-kb-app/cli dev chat coding-agent -m "Fix the failing tests"
-   pnpm --filter @min-kb-app/cli dev chat coding-agent --provider gemini --model gemini-3-pro-preview -m "Summarize the latest failures"
+   pnpm --filter @min-kb-app/cli dev chat coding-agent --provider gemini --model gemini-3.1-pro-preview -m "Summarize the latest failures"
    pnpm --filter @min-kb-app/cli dev orchestrate --project-path "$PWD" --project-purpose "Keep the repo healthy" --provider gemini --wait "Fix the failing tests"
    ```
 
@@ -161,6 +161,7 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_APP_LM_STUDIO_MODEL` or `LM_STUDIO_MODEL` provide a fallback LM Studio model id when live model discovery is unavailable
 - `MIN_KB_APP_LM_STUDIO_MODELS_TIMEOUT_MS` and `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` override the local-model discovery and chat request timeouts when slower LM Studio models need more time
 - `MIN_KB_APP_LM_STUDIO_MAX_COMPLETION_TOKENS` or `LM_STUDIO_MAX_COMPLETION_TOKENS` raise or lower the LM Studio chat completion budget when local reasoning models like Gemma need more room to finish their visible answer
+- saved LM Studio sessions can also override the provider's `enable_thinking` flag for quicker visible replies on supported models such as Gemma 4
 - `VITE_API_BASE_URL` lets the web build target a non-default runtime API
 - `VITE_BASE_PATH` optionally overrides the web app base path for static hosting builds
 - `RUNTIME.json` stores the saved per-session chat runtime config
@@ -188,11 +189,11 @@ The web UI now supports:
 
 ## Model selection
 
-Model options are loaded from the runtime as a provider-aware catalog. GitHub Copilot models come from the Copilot SDK and are merged with a bundled fallback catalog so the selector stays populated even when live discovery is unavailable. Gemini models come from the Gemini SDK `models.list()` API with bundled `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` fallbacks, matching the newer Gemini CLI model families when discovery is unavailable. LM Studio models are discovered from the local OpenAI-compatible `/models` endpoint, with an optional environment-configured fallback model id.
+Model options are loaded from the runtime as a provider-aware catalog. GitHub Copilot models come from the Copilot SDK and are merged with a bundled fallback catalog so the selector stays populated even when live discovery is unavailable. The bundled Copilot fallback list intentionally sticks to current broadly available models and drops retired IDs such as GPT-5, the GPT-5.1 family, and older Claude Opus entries. Gemini models come from the Gemini SDK `models.list()` API with bundled `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` fallbacks, matching the newer Gemini CLI model families when discovery is unavailable. LM Studio models are discovered from the local OpenAI-compatible `/models` endpoint, with an optional environment-configured fallback model id.
 
 When Gemini or LM Studio is selected, the runtime injects the chosen agent prompt plus any enabled `SKILL.md` documents into the request as prompt-backed system context. That gives non-Copilot providers a middle-tier workflow closer to agent behavior without claiming native Copilot skill execution. MCP server wiring still remains Copilot-only.
 
-The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them. Gemini currently keeps prompt-backed skills available, but not MCP wiring or reasoning-effort controls. In orchestrator sessions, Copilot keeps custom-agent and fleet-mode controls while Gemini sessions stay on standard execution without custom agents.
+The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them. LM Studio also exposes a thinking-mode override that maps to its custom `enable_thinking` request flag for models like Gemma 4. Gemini currently keeps prompt-backed skills available, but not MCP wiring or reasoning-effort controls. In orchestrator sessions, Copilot keeps custom-agent and fleet-mode controls while Gemini sessions stay on standard execution without custom agents.
 
 ## Troubleshooting
 

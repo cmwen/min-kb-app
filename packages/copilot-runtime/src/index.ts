@@ -969,6 +969,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
         agentPrompt: input.agent?.combinedPrompt,
         enabledSkills,
       }),
+      enableThinking: input.config.lmStudioEnableThinking,
     });
 
     const completion =
@@ -1011,6 +1012,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
           agentPrompt: input.agent?.combinedPrompt,
           enabledSkills,
         }),
+        enableThinking: input.config.lmStudioEnableThinking,
       },
       onAssistantSnapshot
     );
@@ -1034,6 +1036,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
   private async sendChatCompletion(input: {
     model: string;
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+    enableThinking?: boolean;
   }): Promise<Response> {
     const attempt = async () =>
       fetchWithTimeout(
@@ -1043,12 +1046,15 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
           headers: {
             "content-type": "application/json",
           },
-          body: JSON.stringify({
-            model: input.model,
-            messages: input.messages,
-            max_completion_tokens: this.maxCompletionTokens,
-            stream: false,
-          }),
+          body: JSON.stringify(
+            buildLmStudioChatCompletionBody({
+              model: input.model,
+              messages: input.messages,
+              maxCompletionTokens: this.maxCompletionTokens,
+              stream: false,
+              enableThinking: input.enableThinking,
+            })
+          ),
         },
         this.chatTimeoutMs,
         "LM Studio chat request"
@@ -1079,6 +1085,7 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
         role: "system" | "user" | "assistant";
         content: string;
       }>;
+      enableThinking?: boolean;
     },
     onAssistantSnapshot: RuntimeAssistantSnapshotHandler
   ): Promise<LmStudioChatCompletionResponse> {
@@ -1090,12 +1097,15 @@ class LmStudioRuntimeProvider implements RuntimeProvider {
           headers: {
             "content-type": "application/json",
           },
-          body: JSON.stringify({
-            model: input.model,
-            messages: input.messages,
-            max_completion_tokens: this.maxCompletionTokens,
-            stream: true,
-          }),
+          body: JSON.stringify(
+            buildLmStudioChatCompletionBody({
+              model: input.model,
+              messages: input.messages,
+              maxCompletionTokens: this.maxCompletionTokens,
+              stream: true,
+              enableThinking: input.enableThinking,
+            })
+          ),
         },
         this.chatTimeoutMs,
         "LM Studio chat stream request"
@@ -1169,6 +1179,24 @@ interface LmStudioContentPart {
   type?: string;
   text?: string;
   thinking?: string;
+}
+
+function buildLmStudioChatCompletionBody(input: {
+  model: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  maxCompletionTokens: number;
+  stream: boolean;
+  enableThinking?: boolean;
+}) {
+  return {
+    model: input.model,
+    messages: input.messages,
+    max_completion_tokens: input.maxCompletionTokens,
+    stream: input.stream,
+    ...(input.enableThinking === undefined
+      ? {}
+      : { enable_thinking: input.enableThinking }),
+  };
 }
 
 function buildLmStudioMessages(input: {

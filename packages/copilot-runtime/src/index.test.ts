@@ -663,6 +663,78 @@ describe("ChatRuntimeService", () => {
     expect(result.assistantText).toBe("Here is the visible answer.");
   });
 
+  it("forwards LM Studio's enable_thinking flag on non-streaming chat requests", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: "google/gemma-4-e4b",
+          created: 1_763_600_000,
+          usage: {
+            prompt_tokens: 18,
+            completion_tokens: 7,
+          },
+          choices: [
+            {
+              message: {
+                content: "Quick Gemma reply.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    await runtime.sendMessage({
+      agentId: "chat-agent",
+      sessionId: "gemma-quick-response",
+      prompt: "Answer quickly.",
+      config: {
+        provider: "lmstudio",
+        model: "google/gemma-4-e4b",
+        lmStudioEnableThinking: false,
+        disabledSkills: [],
+        mcpServers: {},
+      },
+    });
+
+    const requestInit = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(requestInit).toBeDefined();
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      model: "google/gemma-4-e4b",
+      stream: false,
+      enable_thinking: false,
+    });
+  });
+
   it("drops thinking content parts from LM Studio array responses", async () => {
     const fetchMock = vi.fn();
     fetchMock.mockResolvedValueOnce(
@@ -1235,6 +1307,65 @@ describe("ChatRuntimeService", () => {
       "The deploy stalled on a migration lock."
     );
     expect(result.thinkingText).toBe("Review the deployment log.");
+  });
+
+  it("forwards LM Studio's enable_thinking flag on streaming chat requests", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "google/gemma-4-e4b", owned_by: "lmstudio-community" }],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
+      createNdjsonResponse([
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"delta":{"content":"Quick Gemma reply."},"finish_reason":null}],"usage":{"prompt_tokens":18,"completion_tokens":7}}',
+        'data: {"id":"chatcmpl-1","created":1763600000,"model":"google/gemma-4-e4b","choices":[{"finish_reason":"stop"}]}',
+        "data: [DONE]",
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = new ChatRuntimeService(
+      {
+        storeRoot: "/tmp",
+        agentsRoot: "/tmp/agents",
+        skillsRoot: "/tmp/skills",
+        copilotConfigDir: "/tmp/.copilot",
+        copilotSkillsRoot: "/tmp/.copilot/skills",
+        memoryRoot: "/tmp/memory",
+      },
+      { lmStudioBaseUrl: "http://127.0.0.1:1234/v1" }
+    );
+
+    await runtime.streamMessage(
+      {
+        agentId: "chat-agent",
+        sessionId: "gemma-quick-response-stream",
+        prompt: "Answer quickly.",
+        config: {
+          provider: "lmstudio",
+          model: "google/gemma-4-e4b",
+          lmStudioEnableThinking: false,
+          disabledSkills: [],
+          mcpServers: {},
+        },
+      },
+      () => undefined
+    );
+
+    const requestInit = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(requestInit).toBeDefined();
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      model: "google/gemma-4-e4b",
+      stream: true,
+      enable_thinking: false,
+    });
   });
 
   it("surfaces a clear timeout error when LM Studio is too slow to reply", async () => {

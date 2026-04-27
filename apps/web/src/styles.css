@@ -971,6 +971,29 @@ p {
   font-size: 0.9rem;
 }
 
+.orchestrator-delegate-footer {
+  flex-wrap: wrap;
+}
+
+.orchestrator-delegate-footer .composer-meta {
+  flex: 1 1 24rem;
+  min-width: 0;
+}
+
+.orchestrator-command-hint {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.orchestrator-command-hint code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.orchestrator-delegate-footer .primary-button {
+  flex: 0 0 auto;
+}
+
 .orchestrator-toolbar-status {
   white-space: nowrap;
 }
@@ -1934,6 +1957,17 @@ p {
     min-height: 240px;
     max-height: 38vh;
     font-size: 0.85rem;
+  }
+}
+
+@media (min-width: 921px) and (max-height: 760px) {
+  .terminal-output {
+    min-height: 240px;
+    max-height: 40vh;
+  }
+
+  .orchestrator-primary-action textarea {
+    min-height: 7.5rem;
   }
 }
 

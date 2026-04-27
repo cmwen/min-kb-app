@@ -51,6 +51,7 @@ That file currently holds:
 - `provider`
 - `model`
 - `reasoningEffort` when explicitly chosen
+- `lmStudioEnableThinking` when LM Studio thinking mode is overridden
 - `disabledSkills`
 - `mcpServers`
 
@@ -134,13 +135,13 @@ Chat attachments are exposed back through `/api/agents/:agentId/sessions/:sessio
 
 The runtime exposes a provider-aware model catalog with `defaultProvider`, `providers`, and `models`. The GitHub Copilot provider uses the Copilot SDK `listModels()` API to discover models and metadata, including supported reasoning effort options and premium request billing multipliers when the SDK exposes them. The app also ships a bundled Copilot fallback catalog so the selector can stay populated if live discovery fails.
 
-The Gemini provider uses the Google GenAI SDK `models.list()` API and falls back to bundled `gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` descriptors plus the optional configured fallback model id when discovery fails.
+The Gemini provider uses the Google GenAI SDK `models.list()` API and falls back to bundled `gemini-3-flash-preview`, `gemini-3.1-pro-preview`, `gemini-2.5-flash`, and `gemini-2.5-pro` descriptors plus the optional configured fallback model id when discovery fails.
 
 The LM Studio provider discovers local models from its OpenAI-compatible `/models` endpoint, using the configured base URL and optional fallback model id when discovery fails.
 
 When sending a chat request through Gemini or LM Studio, the runtime prepends the selected agent prompt and any enabled skill documents as prompt context. This improves non-Copilot behavior for agentic workflows while staying honest about the runtime boundary: MCP server wiring and native tool execution still require the GitHub Copilot provider.
 
-The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities. In the orchestrator workspace, Copilot sessions expose custom-agent and fleet-mode controls, while Gemini sessions intentionally limit those controls to the subset supported by the `gemini` CLI.
+The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. LM Studio also shows a provider-specific thinking-mode selector that sends the model's custom `enable_thinking` flag when you want quicker replies from supported models such as Gemma 4. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities. In the orchestrator workspace, Copilot sessions expose custom-agent and fleet-mode controls, while Gemini sessions intentionally limit those controls to the subset supported by the `gemini` CLI.
 
 ## MCP JSON
 

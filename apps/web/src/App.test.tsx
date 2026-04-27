@@ -359,6 +359,90 @@ describe("App memory analysis", () => {
     );
   });
 
+  it("lets LM Studio disable thinking for quicker replies", async () => {
+    const user = userEvent.setup();
+    apiMocks.sendMessage.mockResolvedValue({
+      thread: {
+        sessionId: "session-1",
+        agentId: "support-agent",
+        title: "Support chat",
+        startedAt: "2026-03-20T12:00:00Z",
+        summary: "Investigate memory analysis behavior",
+        manifestPath: "/tmp/session-1/SESSION.md",
+        turnCount: 3,
+        lastTurnAt: "2026-03-20T12:02:00Z",
+        runtimeConfig: {
+          provider: "lmstudio",
+          model: "qwen2.5-7b-instruct",
+          lmStudioEnableThinking: false,
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        turns: [
+          {
+            messageId: "m1",
+            sender: "user",
+            createdAt: "2026-03-20T12:00:00Z",
+            bodyMarkdown: "Please remember the deployment owner.",
+            relativePath: "turns/m1.md",
+          },
+          {
+            messageId: "m2",
+            sender: "assistant",
+            createdAt: "2026-03-20T12:01:00Z",
+            bodyMarkdown: "I will capture the owner in memory.",
+            relativePath: "turns/m2.md",
+          },
+          {
+            messageId: "m3",
+            sender: "user",
+            createdAt: "2026-03-20T12:02:00Z",
+            bodyMarkdown: "Keep it short.",
+            relativePath: "turns/m3.md",
+          },
+        ],
+      },
+      assistantTurn: {
+        messageId: "m4",
+        sender: "assistant",
+        createdAt: "2026-03-20T12:02:30Z",
+        bodyMarkdown: "Short reply.",
+        relativePath: "turns/m4.md",
+      },
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /Runtime/i }));
+    await user.selectOptions(screen.getByLabelText("Provider"), "lmstudio");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: /Thinking mode/i }),
+      "disabled"
+    );
+    await user.type(
+      await screen.findByLabelText("Message composer"),
+      "Keep it short."
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(apiMocks.sendMessageStream).toHaveBeenCalledTimes(1)
+    );
+    expect(apiMocks.sendMessageStream).toHaveBeenCalledWith(
+      "support-agent",
+      "session-1",
+      expect.objectContaining({
+        prompt: "Keep it short.",
+        config: expect.objectContaining({
+          provider: "lmstudio",
+          model: "qwen2.5-7b-instruct",
+          lmStudioEnableThinking: false,
+        }),
+      }),
+      expect.any(Function)
+    );
+  });
+
   it("renders streaming assistant snapshots before the final chat response lands", async () => {
     const user = userEvent.setup();
     let resolveResponse:
@@ -846,6 +930,152 @@ describe("App memory analysis", () => {
     expect(openButtons).toHaveLength(1);
     expect(screen.getByText("Handle a reopened incident")).not.toBeNull();
     expect(apiMocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("renders a cached thread immediately and refreshes it in the background", async () => {
+    localStorage.setItem(
+      "min-kb-app:snapshot:v2",
+      JSON.stringify({
+        workspace: {
+          storeRoot: "/tmp/store",
+          copilotConfigDir: "/tmp/.copilot",
+          storeSkillDirectory: "/tmp/store/skills",
+          copilotSkillDirectory: "/tmp/.copilot/skills",
+          agentCount: 1,
+        },
+        agents: [
+          {
+            id: "support-agent",
+            kind: "chat",
+            title: "Support agent",
+            description: "Helps with support work.",
+            combinedPrompt: "Be helpful.",
+            agentPath: "/tmp/agents/support-agent/AGENT.md",
+            defaultSoulPath: "/tmp/agents/default/SOUL.md",
+            historyRoot: "/tmp/agents/support-agent/history",
+            workingMemoryRoot: "/tmp/agents/support-agent/memory/working",
+            skillRoot: "/tmp/agents/support-agent/skills",
+            skillNames: ["memory-capture"],
+            sessionCount: 1,
+          },
+        ],
+        providers: [
+          {
+            id: "copilot",
+            displayName: "GitHub Copilot",
+            capabilities: {
+              supportsReasoningEffort: true,
+              supportsSkills: true,
+              supportsMcpServers: true,
+            },
+          },
+        ],
+        defaultProvider: "copilot",
+        models: [
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ],
+        sessionsByAgent: {
+          "support-agent": [
+            {
+              sessionId: "session-1",
+              agentId: "support-agent",
+              title: "Support chat",
+              startedAt: "2026-03-20T12:00:00Z",
+              summary: "Investigate memory analysis behavior",
+              manifestPath: "/tmp/session-1/SESSION.md",
+              turnCount: 2,
+              lastTurnAt: "2026-03-20T12:01:00Z",
+              runtimeConfig: {
+                model: "gpt-5",
+                disabledSkills: [],
+                mcpServers: {},
+              },
+            },
+          ],
+        },
+        threadsByKey: {
+          "support-agent:session-1": {
+            sessionId: "session-1",
+            agentId: "support-agent",
+            title: "Support chat",
+            startedAt: "2026-03-20T12:00:00Z",
+            summary: "Investigate memory analysis behavior",
+            manifestPath: "/tmp/session-1/SESSION.md",
+            turnCount: 2,
+            lastTurnAt: "2026-03-20T12:01:00Z",
+            runtimeConfig: {
+              model: "gpt-5",
+              disabledSkills: [],
+              mcpServers: {},
+            },
+            turns: [
+              {
+                messageId: "cached-m1",
+                sender: "user",
+                createdAt: "2026-03-20T12:00:00Z",
+                bodyMarkdown: "Cached thread body",
+                relativePath: "turns/cached-m1.md",
+              },
+            ],
+          },
+        },
+      })
+    );
+    localStorage.setItem(
+      "min-kb-app:app-state",
+      JSON.stringify({
+        selectedAgentId: "support-agent",
+        selectedSessionId: "session-1",
+        preferNewSession: false,
+        draftConfig: {
+          provider: "copilot",
+          model: "gpt-5",
+          disabledSkills: [],
+          mcpServers: {},
+        },
+        draftMcpText: "{}",
+      })
+    );
+    apiMocks.getSession.mockResolvedValue({
+      sessionId: "session-1",
+      agentId: "support-agent",
+      title: "Support chat",
+      startedAt: "2026-03-20T12:00:00Z",
+      summary: "Investigate memory analysis behavior",
+      manifestPath: "/tmp/session-1/SESSION.md",
+      turnCount: 2,
+      lastTurnAt: "2026-03-20T12:01:00Z",
+      runtimeConfig: {
+        model: "gpt-5",
+        disabledSkills: [],
+        mcpServers: {},
+      },
+      turns: [
+        {
+          messageId: "fresh-m1",
+          sender: "user" as const,
+          createdAt: "2026-03-20T12:00:00Z",
+          bodyMarkdown: "Fresh thread body",
+          relativePath: "turns/fresh-m1.md",
+        },
+      ],
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Cached thread body")).not.toBeNull();
+    await waitFor(() =>
+      expect(apiMocks.getSession).toHaveBeenCalledWith(
+        "support-agent",
+        "session-1"
+      )
+    );
+    expect(await screen.findByText("Fresh thread body")).not.toBeNull();
   });
 
   it("restores new-chat mode without auto-opening the first saved session", async () => {

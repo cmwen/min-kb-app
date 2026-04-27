@@ -39,6 +39,7 @@ interface RuntimeControlsProps {
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onReasoningEffortChange: (reasoningEffort?: ReasoningEffort) => void;
+  onLmStudioEnableThinkingChange: (enableThinking?: boolean) => void;
   onSkillToggle: (skillName: string) => void;
   onMcpTextChange: (value: string) => void;
 }
@@ -218,6 +219,38 @@ export function RuntimeControls(props: RuntimeControlsProps) {
                   <small className="field-note">
                     Only shown when the selected model exposes reasoning
                     controls.
+                  </small>
+                </label>
+              ) : null}
+              {props.config.provider === "lmstudio" ? (
+                <label className="field-group">
+                  <span>Thinking mode</span>
+                  <select
+                    value={
+                      props.config.lmStudioEnableThinking === undefined
+                        ? ""
+                        : props.config.lmStudioEnableThinking
+                          ? "enabled"
+                          : "disabled"
+                    }
+                    onChange={(event) =>
+                      props.onLmStudioEnableThinkingChange(
+                        event.target.value === ""
+                          ? undefined
+                          : event.target.value === "enabled"
+                      )
+                    }
+                  >
+                    <option value="">Model default</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">
+                      Quick response (thinking off)
+                    </option>
+                  </select>
+                  <small className="field-note">
+                    Sends LM Studio&apos;s custom <code>enable_thinking</code>{" "}
+                    flag. Turning it off can speed up Gemma 4 replies and leave
+                    more room for the visible answer.
                   </small>
                 </label>
               ) : null}

@@ -98,6 +98,7 @@ export const chatRuntimeConfigSchema = z.object({
   provider: z.string().min(1).default(DEFAULT_CHAT_PROVIDER),
   model: z.string().min(1).default(DEFAULT_CHAT_MODEL),
   reasoningEffort: reasoningEffortSchema.optional(),
+  lmStudioEnableThinking: z.boolean().optional(),
   disabledSkills: z.array(z.string()).default([]),
   mcpServers: z.record(z.string(), mcpServerConfigSchema).default({}),
 });
@@ -107,6 +108,7 @@ export const partialChatRuntimeConfigSchema = z.object({
   provider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   reasoningEffort: reasoningEffortSchema.optional(),
+  lmStudioEnableThinking: z.boolean().optional(),
   disabledSkills: z.array(z.string()).optional(),
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
 });

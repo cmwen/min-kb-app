@@ -55,8 +55,8 @@ Returns a provider-aware `ModelCatalog`:
   ],
   "models": [
     {
-      "id": "gpt-5",
-      "displayName": "GPT-5",
+      "id": "gpt-5.2",
+      "displayName": "GPT-5.2",
       "runtimeProvider": "copilot",
       "premiumRequestMultiplier": 1,
       "supportedReasoningEfforts": ["low", "medium", "high"]
@@ -119,9 +119,9 @@ Request body: `ChatRequest`
   "title": "Investigate flaky tests",
   "prompt": "Find the root cause of the flaky test.",
   "config": {
-    "provider": "copilot",
-    "model": "gpt-5",
-    "reasoningEffort": "medium",
+    "provider": "lmstudio",
+    "model": "google/gemma-4-e4b",
+    "lmStudioEnableThinking": false,
     "disabledSkills": [],
     "mcpServers": {}
   },
@@ -139,6 +139,7 @@ Notes:
 - either `prompt` or `attachment` must be present
 - `attachment` is optional and is persisted under the session directory
 - the runtime augments the model prompt with local file context for the saved attachment
+- `config.lmStudioEnableThinking` is optional and only affects LM Studio requests for models that expose the custom `enable_thinking` field
 - Copilot-backed requests wait for the agent session to settle before responding and currently allow up to 10 minutes for longer tool/reasoning loops before timing out
 
 Response body: `ChatResponse`
@@ -179,7 +180,7 @@ Request body: `MemoryAnalysisRequest`
   "model": "gpt-5-mini",
   "config": {
     "provider": "copilot",
-    "model": "gpt-5"
+    "model": "gpt-5.2"
   }
 }
 ```
@@ -228,7 +229,7 @@ Request body: `OrchestratorSessionCreateRequest`
   "projectPath": "/absolute/path/to/repo",
   "projectPurpose": "Keep the repo healthy",
   "cliProvider": "copilot",
-  "model": "gpt-5",
+  "model": "gpt-5.2",
   "selectedCustomAgentId": "repo-maintainer",
   "executionMode": "fleet",
   "prompt": "Run validation and fix the failing test."
@@ -257,7 +258,7 @@ Request body: `OrchestratorSessionUpdateRequest`
 {
   "title": "Repo upkeep",
   "cliProvider": "copilot",
-  "model": "gpt-5.1",
+  "model": "gpt-5.2",
   "selectedCustomAgentId": "repo-maintainer",
   "executionMode": "fleet"
 }

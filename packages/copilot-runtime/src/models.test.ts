@@ -37,7 +37,7 @@ function buildModelInfo(overrides: Partial<ModelInfo>): ModelInfo {
 describe("inferModelProvider", () => {
   it("maps well-known model families", () => {
     expect(inferModelProvider("claude-sonnet-4.5")).toBe("Anthropic");
-    expect(inferModelProvider("gemini-3-pro-preview")).toBe("Google");
+    expect(inferModelProvider("gemini-3.1-pro-preview")).toBe("Google");
     expect(inferModelProvider("grok-code-fast-1")).toBe("xAI");
     expect(inferModelProvider("gpt-5.4")).toBe("OpenAI");
   });
@@ -282,24 +282,25 @@ describe("mergeModelCatalogs", () => {
     expect(
       FALLBACK_MODELS.some((model) => model.id === "claude-sonnet-4.6")
     ).toBe(true);
+    expect(FALLBACK_MODELS.some((model) => model.id === "gpt-5.2")).toBe(true);
+    expect(FALLBACK_MODELS.some((model) => model.id === "gpt-5")).toBe(false);
+    expect(
+      FALLBACK_MODELS.some((model) => model.id === "gpt-5.1-codex-mini")
+    ).toBe(false);
+    expect(
+      FALLBACK_MODELS.some((model) => model.id === "claude-opus-4.6")
+    ).toBe(false);
     expect(
       FALLBACK_MODELS.find((model) => model.id === "gpt-5-mini")
         ?.premiumRequestMultiplier
     ).toBe(0);
-    expect(
-      FALLBACK_MODELS.find((model) => model.id === "gpt-5.1-codex-mini")
-    ).toMatchObject({
-      displayName: "GPT-5.1 Codex Mini (Preview)",
-      provider: "OpenAI",
-      premiumRequestMultiplier: 0.33,
-    });
     expect(
       FALLBACK_MODELS.filter((model) => model.runtimeProvider === "gemini").map(
         (model) => model.id
       )
     ).toEqual([
       "gemini-3-flash-preview",
-      "gemini-3-pro-preview",
+      "gemini-3.1-pro-preview",
       "gemini-2.5-flash",
       "gemini-2.5-pro",
     ]);
