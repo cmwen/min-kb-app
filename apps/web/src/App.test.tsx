@@ -1146,6 +1146,44 @@ describe("App memory analysis", () => {
     ).not.toBeNull();
   });
 
+  it("requests browser notification permission when completion alerts are enabled", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "min-kb-app:ui-preferences",
+      JSON.stringify({
+        completionNotifications: {
+          enabled: false,
+          minimumDurationMinutes: 3,
+          disabledAgentIds: [],
+        },
+      })
+    );
+
+    const MockNotification = Object.assign(
+      function MockNotification() {
+        return undefined;
+      },
+      {
+        permission: "default" as NotificationPermission,
+        requestPermission: vi.fn(async () => "granted" as const),
+      }
+    );
+
+    vi.stubGlobal("Notification", MockNotification);
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open app settings" })
+    );
+    await screen.findByRole("dialog", { name: "App settings" });
+    await user.click(
+      screen.getByRole("checkbox", { name: /Enable browser notifications/i })
+    );
+
+    expect(MockNotification.requestPermission).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to the first available session when the restored one is gone", async () => {
     localStorage.setItem(
       "min-kb-app:app-state",

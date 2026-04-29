@@ -83,7 +83,11 @@ export default defineConfig({
   ],
   server: {
     port: 4173,
-    allowedHosts: ["minipc.local", "minipc-wsl"],
+    allowedHosts: [
+      "minipc.local",
+      "minipc-wsl",
+      "minipc-wsl.tail2e322f.ts.net",
+    ],
     proxy: {
       "/api": {
         target: "http://localhost:8787",

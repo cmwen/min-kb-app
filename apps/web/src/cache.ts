@@ -28,6 +28,8 @@ const QUEUE_KEY = "min-kb-app:queue";
 const DRAFT_PREFIX = "min-kb-app:draft:";
 const UI_PREFERENCES_KEY = "min-kb-app:ui-preferences";
 const SESSION_NOTIFICATION_ACKS_KEY = "min-kb-app:session-notification-acks";
+const COMPLETION_NOTIFICATION_DELIVERIES_KEY =
+  "min-kb-app:completion-notification-deliveries";
 const APP_STATE_KEY = "min-kb-app:app-state";
 
 export interface CachedSnapshot {
@@ -170,6 +172,28 @@ export function saveSessionNotificationAcks(
   localStorage.setItem(
     SESSION_NOTIFICATION_ACKS_KEY,
     JSON.stringify(acknowledgements)
+  );
+}
+
+export function loadCompletionNotificationDeliveries(): SessionNotificationAcks {
+  const raw = localStorage.getItem(COMPLETION_NOTIFICATION_DELIVERIES_KEY);
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return normalizeSessionNotificationAcks(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+export function saveCompletionNotificationDeliveries(
+  deliveries: SessionNotificationAcks
+): void {
+  localStorage.setItem(
+    COMPLETION_NOTIFICATION_DELIVERIES_KEY,
+    JSON.stringify(deliveries)
   );
 }
 

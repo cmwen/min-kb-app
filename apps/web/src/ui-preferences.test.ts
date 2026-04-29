@@ -60,4 +60,23 @@ describe("ui-preferences", () => {
       defaultChatModelId: "qwen2.5-7b-instruct",
     });
   });
+
+  it("normalizes task completion notification preferences", async () => {
+    const { normalizeUiPreferences } = await import("./ui-preferences");
+    expect(
+      normalizeUiPreferences({
+        completionNotifications: {
+          enabled: false,
+          minimumDurationMinutes: 0.4,
+          disabledAgentIds: ["support-agent", "support-agent", 42 as never],
+        },
+      })
+    ).toMatchObject({
+      completionNotifications: {
+        enabled: false,
+        minimumDurationMinutes: 1,
+        disabledAgentIds: ["support-agent"],
+      },
+    });
+  });
 });

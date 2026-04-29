@@ -1,4 +1,5 @@
-import type { ModelDescriptor } from "@min-kb-app/shared";
+import type { AgentSummary, ModelDescriptor } from "@min-kb-app/shared";
+import type { BrowserNotificationPermission } from "../task-completion-notifications";
 import {
   isLastVisibleModel,
   type ResolvedTheme,
@@ -14,11 +15,21 @@ interface SettingsModalProps {
   hiddenModelIds: string[];
   selectedChatModelId: string;
   selectedModelId: string;
+  agents: AgentSummary[];
+  completionNotificationsEnabled: boolean;
+  completionNotificationPermission: BrowserNotificationPermission;
+  completionNotificationMinutes: number;
+  completionNotificationDisabledAgentIds: string[];
   onClose: () => void;
   onThemeChange: (theme: ThemePreference) => void;
   onChatModelChange: (modelId: string) => void;
   onToggleModelVisibility: (modelId: string) => void;
   onShowAllModels: () => void;
+  onCompletionNotificationsEnabledChange: (enabled: boolean) => void;
+  onCompletionNotificationMinutesChange: (minutes: number) => void;
+  onToggleCompletionNotificationAgent: (agentId: string) => void;
+  onEnableCompletionNotificationAgents: () => void;
+  onRequestNotificationPermission: () => void;
 }
 
 const SHORTCUTS = [
@@ -67,6 +78,106 @@ export function SettingsModal(props: SettingsModalProps) {
               Currently rendering the {props.resolvedTheme} theme.
             </small>
           </label>
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-section-header">
+            <div>
+              <div className="eyebrow">Notifications</div>
+              <h3>Task completion</h3>
+              <p className="panel-caption">
+                Use the browser Notification API for long-running completions
+                when you are on another task or the app is not active.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={props.onEnableCompletionNotificationAgents}
+            >
+              Enable all agents
+            </button>
+          </div>
+          <label className="checkbox-row settings-checkbox">
+            <input
+              type="checkbox"
+              checked={props.completionNotificationsEnabled}
+              onChange={(event) =>
+                props.onCompletionNotificationsEnabledChange(
+                  event.target.checked
+                )
+              }
+            />
+            <div>
+              <strong>Enable browser notifications</strong>
+              <span>
+                Notify after long runs finish while you are in another tab,
+                another task, or the app is unfocused.
+              </span>
+            </div>
+          </label>
+          <label className="field-group">
+            <span>
+              Only notify when a task runs for at least this many minutes
+            </span>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={props.completionNotificationMinutes}
+              onChange={(event) =>
+                props.onCompletionNotificationMinutesChange(
+                  Number(event.target.value)
+                )
+              }
+            />
+            <small className="field-note">
+              Permission status:{" "}
+              {formatNotificationPermission(
+                props.completionNotificationPermission
+              )}
+            </small>
+          </label>
+          {props.completionNotificationPermission !== "granted" ? (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={props.onRequestNotificationPermission}
+              disabled={
+                props.completionNotificationPermission === "unsupported"
+              }
+            >
+              {props.completionNotificationPermission === "denied"
+                ? "Notifications blocked by this browser"
+                : props.completionNotificationPermission === "unsupported"
+                  ? "Notifications are not supported here"
+                  : "Allow browser notifications"}
+            </button>
+          ) : null}
+          <div className="settings-checklist">
+            {props.agents.map((agent) => {
+              const disabled =
+                props.completionNotificationDisabledAgentIds.includes(agent.id);
+              return (
+                <label
+                  key={agent.id}
+                  className="checkbox-row settings-checkbox"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!disabled}
+                    onChange={() =>
+                      props.onToggleCompletionNotificationAgent(agent.id)
+                    }
+                  />
+                  <div>
+                    <strong>{agent.title}</strong>
+                    <span>{agent.description}</span>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
         </section>
 
         <section className="settings-card">
@@ -187,4 +298,19 @@ export function SettingsModal(props: SettingsModalProps) {
       </div>
     </Modal>
   );
+}
+
+function formatNotificationPermission(
+  permission: BrowserNotificationPermission
+): string {
+  switch (permission) {
+    case "granted":
+      return "Allowed";
+    case "denied":
+      return "Blocked";
+    case "default":
+      return "Not requested yet";
+    default:
+      return "Unsupported";
+  }
 }

@@ -29,6 +29,7 @@ import { toAttachmentUpload } from "./attachments";
 import {
   clearDraft,
   loadAppState,
+  loadCompletionNotificationDeliveries,
   loadDraft,
   loadQueue,
   loadSessionNotificationAcks,
@@ -36,6 +37,7 @@ import {
   loadUiPreferences,
   type QueuedMessage,
   saveAppState,
+  saveCompletionNotificationDeliveries,
   saveDraft,
   saveQueue,
   saveSessionNotificationAcks,
@@ -70,6 +72,14 @@ import {
   listAgentNotificationIds,
   listSessionNotificationIds,
 } from "./session-notifications";
+import {
+  type BrowserNotificationPermission,
+  type CompletionObservationState,
+  deliverCompletionNotification,
+  evaluateCompletionNotifications,
+  getBrowserNotificationPermission,
+  requestBrowserNotificationPermission,
+} from "./task-completion-notifications";
 import {
   clampSidebarWidth,
   getVisibleModels,
@@ -148,6 +158,10 @@ export default function App() {
     () => loadSessionNotificationAcks(),
     []
   );
+  const cachedCompletionNotificationDeliveries = useMemo(
+    () => loadCompletionNotificationDeliveries(),
+    []
+  );
   const initialSelectedAgentId =
     cachedAppState.selectedAgentId ?? cachedSnapshot.agents[0]?.id;
   const initialSelectedAgent = cachedSnapshot.agents.find(
@@ -173,6 +187,15 @@ export default function App() {
     ]
   );
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const completionObservationRef = useRef<CompletionObservationState>({});
+  const pageVisibleRef = useRef(
+    typeof document === "undefined"
+      ? true
+      : document.visibilityState !== "hidden"
+  );
+  const windowFocusedRef = useRef(
+    typeof document === "undefined" ? true : document.hasFocus()
+  );
   const [workspace, setWorkspace] = useState<WorkspaceSummary | undefined>(
     cachedSnapshot.workspace
   );
@@ -230,6 +253,14 @@ export default function App() {
   const [sessionNotificationAcks, setSessionNotificationAcks] = useState(
     cachedSessionNotificationAcks
   );
+  const [
+    completionNotificationDeliveries,
+    setCompletionNotificationDeliveries,
+  ] = useState(cachedCompletionNotificationDeliveries);
+  const [browserNotificationPermission, setBrowserNotificationPermission] =
+    useState<BrowserNotificationPermission>(() =>
+      getBrowserNotificationPermission()
+    );
   const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -453,6 +484,10 @@ export default function App() {
   }, [sessionNotificationAcks]);
 
   useEffect(() => {
+    saveCompletionNotificationDeliveries(completionNotificationDeliveries);
+  }, [completionNotificationDeliveries]);
+
+  useEffect(() => {
     saveAppState({
       selectedAgentId,
       selectedSessionId: preferNewSession ? undefined : selectedSessionId,
@@ -485,6 +520,96 @@ export default function App() {
     selectedSessionSummary?.lastTurnAt,
     selectedSessionSummary?.sessionId,
     selectedSessionSummary?.startedAt,
+  ]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      pageVisibleRef.current = document.visibilityState !== "hidden";
+      setBrowserNotificationPermission(getBrowserNotificationPermission());
+    };
+    const handleFocus = () => {
+      windowFocusedRef.current = document.hasFocus();
+      setBrowserNotificationPermission(getBrowserNotificationPermission());
+    };
+    const handleBlur = () => {
+      windowFocusedRef.current = false;
+    };
+
+    handleVisibilityChange();
+    windowFocusedRef.current = document.hasFocus();
+    setBrowserNotificationPermission(getBrowserNotificationPermission());
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  useEffect(() => {
+    const evaluation = evaluateCompletionNotifications({
+      sessionsByAgent,
+      observedCompletions: completionObservationRef.current,
+      deliveredCompletions: completionNotificationDeliveries,
+      preferences: uiPreferences.completionNotifications,
+      selectedAgentId,
+      selectedSessionId,
+      pageVisible: pageVisibleRef.current,
+      windowFocused: windowFocusedRef.current,
+    });
+    completionObservationRef.current = evaluation.nextObservedCompletions;
+    if (evaluation.notifications.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const deliveredKeys = new Set<string>();
+      for (const notification of evaluation.notifications) {
+        try {
+          const delivered = await deliverCompletionNotification(notification);
+          if (delivered) {
+            deliveredKeys.add(notification.key);
+          }
+        } catch (deliveryError) {
+          if (!cancelled) {
+            setError(getErrorMessage(deliveryError));
+          }
+        }
+      }
+
+      if (cancelled || deliveredKeys.size === 0) {
+        return;
+      }
+
+      setCompletionNotificationDeliveries((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const notification of evaluation.notifications) {
+          if (!deliveredKeys.has(notification.key)) {
+            continue;
+          }
+          if (next[notification.key] === notification.completedAt) {
+            continue;
+          }
+          next[notification.key] = notification.completedAt;
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    completionNotificationDeliveries,
+    selectedAgentId,
+    selectedSessionId,
+    sessionsByAgent,
+    uiPreferences.completionNotifications,
   ]);
 
   useEffect(() => {
@@ -996,6 +1121,11 @@ export default function App() {
     if (!isOrchestratorAgent && !isScheduleAgent) {
       focusComposer();
     }
+  }
+
+  async function handleRequestBrowserNotifications() {
+    const permission = await requestBrowserNotificationPermission();
+    setBrowserNotificationPermission(permission);
   }
 
   function handleToggleSkill(skillName: string) {
@@ -1709,6 +1839,9 @@ export default function App() {
     setSessionNotificationAcks((current) =>
       clearSessionNotificationAck(current, agentId, sessionId)
     );
+    setCompletionNotificationDeliveries((current) =>
+      clearSessionNotificationAck(current, agentId, sessionId)
+    );
     setThreadsByKey((current) => {
       const next = { ...current };
       delete next[`${agentId}:${sessionId}`];
@@ -1758,6 +1891,9 @@ export default function App() {
     setSessionNotificationAcks((current) =>
       clearSessionNotificationAck(current, ORCHESTRATOR_AGENT_ID, sessionId)
     );
+    setCompletionNotificationDeliveries((current) =>
+      clearSessionNotificationAck(current, ORCHESTRATOR_AGENT_ID, sessionId)
+    );
     setOrchestratorSchedulesBySessionId((current) => {
       const next = { ...current };
       delete next[sessionId];
@@ -1786,6 +1922,9 @@ export default function App() {
 
   function removeScheduledTaskLocally(scheduleId: string) {
     setSessionNotificationAcks((current) =>
+      clearSessionNotificationAck(current, SCHEDULE_AGENT_ID, scheduleId)
+    );
+    setCompletionNotificationDeliveries((current) =>
       clearSessionNotificationAck(current, SCHEDULE_AGENT_ID, scheduleId)
     );
     setScheduleTasksById((current) => {
@@ -2291,12 +2430,23 @@ export default function App() {
         open={settingsOpen}
         theme={uiPreferences.theme}
         resolvedTheme={resolvedTheme}
+        agents={agents}
         models={models}
         hiddenModelIds={uiPreferences.hiddenModelIds}
         selectedChatModelId={
           selectedDefaultChatModel?.id ?? uiPreferences.defaultChatModelId
         }
         selectedModelId={config.model}
+        completionNotificationsEnabled={
+          uiPreferences.completionNotifications.enabled
+        }
+        completionNotificationPermission={browserNotificationPermission}
+        completionNotificationMinutes={
+          uiPreferences.completionNotifications.minimumDurationMinutes
+        }
+        completionNotificationDisabledAgentIds={
+          uiPreferences.completionNotifications.disabledAgentIds
+        }
         onClose={() => setSettingsOpen(false)}
         onThemeChange={(theme) =>
           setUiPreferences((current) => ({
@@ -2322,6 +2472,63 @@ export default function App() {
             hiddenModelIds: [],
           }))
         }
+        onCompletionNotificationsEnabledChange={(enabled) => {
+          setUiPreferences((current) => ({
+            ...current,
+            completionNotifications: {
+              ...current.completionNotifications,
+              enabled,
+            },
+          }));
+          if (enabled && browserNotificationPermission === "default") {
+            void handleRequestBrowserNotifications();
+          }
+        }}
+        onCompletionNotificationMinutesChange={(minutes) =>
+          setUiPreferences((current) => ({
+            ...current,
+            completionNotifications: {
+              ...current.completionNotifications,
+              minimumDurationMinutes: Number.isFinite(minutes)
+                ? Math.max(1, Math.round(minutes))
+                : current.completionNotifications.minimumDurationMinutes,
+            },
+          }))
+        }
+        onToggleCompletionNotificationAgent={(agentId) =>
+          setUiPreferences((current) => {
+            const disabled =
+              current.completionNotifications.disabledAgentIds.includes(
+                agentId
+              );
+            return {
+              ...current,
+              completionNotifications: {
+                ...current.completionNotifications,
+                disabledAgentIds: disabled
+                  ? current.completionNotifications.disabledAgentIds.filter(
+                      (item) => item !== agentId
+                    )
+                  : [
+                      ...current.completionNotifications.disabledAgentIds,
+                      agentId,
+                    ],
+              },
+            };
+          })
+        }
+        onEnableCompletionNotificationAgents={() =>
+          setUiPreferences((current) => ({
+            ...current,
+            completionNotifications: {
+              ...current.completionNotifications,
+              disabledAgentIds: [],
+            },
+          }))
+        }
+        onRequestNotificationPermission={() => {
+          void handleRequestBrowserNotifications();
+        }}
       />
 
       <CommandPalette

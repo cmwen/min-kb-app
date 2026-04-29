@@ -7,6 +7,14 @@ import {
 export type ThemePreference = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
 
+export const DEFAULT_COMPLETION_NOTIFICATION_MINUTES = 2;
+
+export interface CompletionNotificationPreferences {
+  enabled: boolean;
+  minimumDurationMinutes: number;
+  disabledAgentIds: string[];
+}
+
 export interface UiPreferences {
   theme: ThemePreference;
   hiddenModelIds: string[];
@@ -14,6 +22,7 @@ export interface UiPreferences {
   defaultChatModelId: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
+  completionNotifications: CompletionNotificationPreferences;
 }
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -28,6 +37,7 @@ export function createDefaultUiPreferences(): UiPreferences {
     defaultChatModelId: DEFAULT_CHAT_MODEL,
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     sidebarCollapsed: false,
+    completionNotifications: createDefaultCompletionNotificationPreferences(),
   };
 }
 
@@ -65,6 +75,9 @@ export function normalizeUiPreferences(
       typeof raw?.sidebarCollapsed === "boolean"
         ? raw.sidebarCollapsed
         : defaults.sidebarCollapsed,
+    completionNotifications: normalizeCompletionNotificationPreferences(
+      raw?.completionNotifications
+    ),
   };
 }
 
@@ -123,4 +136,42 @@ export function isLastVisibleModel(
 
 function isThemePreference(value: unknown): value is ThemePreference {
   return value === "system" || value === "dark" || value === "light";
+}
+
+export function createDefaultCompletionNotificationPreferences(): CompletionNotificationPreferences {
+  return {
+    enabled: true,
+    minimumDurationMinutes: DEFAULT_COMPLETION_NOTIFICATION_MINUTES,
+    disabledAgentIds: [],
+  };
+}
+
+export function normalizeCompletionNotificationPreferences(
+  raw?: Partial<CompletionNotificationPreferences> | null
+): CompletionNotificationPreferences {
+  const defaults = createDefaultCompletionNotificationPreferences();
+
+  return {
+    enabled: typeof raw?.enabled === "boolean" ? raw.enabled : defaults.enabled,
+    minimumDurationMinutes: normalizeMinimumDurationMinutes(
+      raw?.minimumDurationMinutes
+    ),
+    disabledAgentIds: Array.isArray(raw?.disabledAgentIds)
+      ? [
+          ...new Set(
+            raw.disabledAgentIds.filter(
+              (value): value is string => typeof value === "string"
+            )
+          ),
+        ]
+      : defaults.disabledAgentIds,
+  };
+}
+
+function normalizeMinimumDurationMinutes(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_COMPLETION_NOTIFICATION_MINUTES;
+  }
+
+  return Math.max(1, Math.round(value));
 }
