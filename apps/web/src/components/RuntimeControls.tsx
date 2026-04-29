@@ -138,7 +138,12 @@ export function RuntimeControls(props: RuntimeControlsProps) {
         >
           <span className="toolbar-chip-label">Runtime</span>
           <strong>{selectedModel?.displayName ?? props.config.model}</strong>
-          <small>{selectedProvider?.displayName ?? "Runtime default"}</small>
+          <small>
+            {selectedProvider?.displayName ?? "Runtime default"}
+            {props.config.reasoningEffort
+              ? ` - ${formatReasoningEffort(props.config.reasoningEffort)}`
+              : ""}
+          </small>
         </button>
         {openPanel === "model" ? (
           <div
@@ -273,7 +278,7 @@ export function RuntimeControls(props: RuntimeControlsProps) {
           <strong>{enabledSkillCount} enabled</strong>
           <small>
             {providerCapabilities?.supportsSkills
-              ? `${props.skills.length} discovered`
+              ? `${props.skills.length} available`
               : "Unsupported"}
           </small>
         </button>
@@ -361,7 +366,7 @@ export function RuntimeControls(props: RuntimeControlsProps) {
               ? "Unsupported"
               : props.mcpError
                 ? "Invalid JSON"
-                : "Ready to send"}
+                : "Ready"}
           </small>
         </button>
         {openPanel === "mcp" ? (

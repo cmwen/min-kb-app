@@ -10,9 +10,6 @@ const base =
 const apiBaseUrl = process.env.VITE_API_BASE_URL;
 const apiUrl = apiBaseUrl ? new URL(apiBaseUrl) : undefined;
 const apiPathPrefix = `${trimTrailingSlash(apiUrl?.pathname ?? "")}/api/`;
-const apiRuntimeCachePattern = apiUrl
-  ? new RegExp(`^${escapeRegExp(apiUrl.origin)}${escapeRegExp(apiPathPrefix)}`)
-  : /\/api\//;
 
 export default defineConfig({
   base,
@@ -46,7 +43,8 @@ export default defineConfig({
         navigateFallback: `${base}index.html`,
         runtimeCaching: [
           {
-            urlPattern: apiRuntimeCachePattern,
+            urlPattern: ({ request, url }) =>
+              shouldCacheApiRequest(request, url),
             handler: "NetworkFirst",
             options: {
               cacheName: "api-cache",
@@ -101,6 +99,31 @@ function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function shouldCacheApiRequest(request: Request, url: URL): boolean {
+  if (request.method !== "GET") {
+    return false;
+  }
+
+  if (!matchesApiUrl(url)) {
+    return false;
+  }
+
+  if (
+    request.headers.get("accept")?.includes("text/event-stream") ||
+    url.pathname.endsWith("/stream")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function matchesApiUrl(url: URL): boolean {
+  if (apiUrl) {
+    return (
+      url.origin === apiUrl.origin && url.pathname.startsWith(apiPathPrefix)
+    );
+  }
+
+  return url.pathname.includes("/api/");
 }

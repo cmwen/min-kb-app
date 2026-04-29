@@ -90,6 +90,7 @@ const ORCHESTRATOR_AGENT_ID = "copilot-orchestrator";
 const SCHEDULE_AGENT_ID = "copilot-schedule";
 const MAX_CACHED_THREAD_COUNT = 3;
 const MAX_CACHED_THREAD_TURNS = 30;
+const HEADER_VALUE_MAX_LENGTH = 48;
 
 type DangerAction =
   | {
@@ -417,6 +418,69 @@ export default function App() {
   );
   const selectedAgentHasNotifications =
     selectedAgentId !== undefined && notificationAgentIds.has(selectedAgentId);
+  const scheduleTargetLabel =
+    selectedScheduleTask?.targetKind === "orchestrator"
+      ? (selectedScheduledOrchestratorSession?.title ??
+        selectedScheduleTask.orchestratorSessionId)
+      : selectedScheduleTask?.agentId
+        ? (agents.find((agent) => agent.id === selectedScheduleTask.agentId)
+            ?.title ?? selectedScheduleTask.agentId)
+        : undefined;
+  const chatHeaderSummary = isOrchestratorAgent
+    ? selectedOrchestratorSession
+      ? [
+          formatHeaderSummaryValue(
+            "Model",
+            selectedOrchestratorModel?.displayName ??
+              selectedOrchestratorSession.model
+          ),
+          formatHeaderSummaryValue(
+            "Jobs",
+            `${selectedOrchestratorSession.jobs.length}`
+          ),
+          selectedOrchestratorQueuedJobCount > 0
+            ? formatHeaderSummaryValue(
+                "Queued",
+                `${selectedOrchestratorQueuedJobCount}`
+              )
+            : undefined,
+          formatHeaderSummaryValue(
+            "Status",
+            selectedOrchestratorSession.status
+          ),
+        ]
+          .filter(Boolean)
+          .join(" • ")
+      : orchestratorCapabilities
+        ? formatHeaderSummaryValue(
+            "Project",
+            orchestratorCapabilities.defaultProjectPath
+          )
+        : "Waiting for orchestrator capabilities."
+    : isScheduleAgent
+      ? selectedScheduleTask
+        ? [
+            formatHeaderSummaryValue(
+              selectedScheduleTask.targetKind === "orchestrator"
+                ? "Session"
+                : "Agent",
+              scheduleTargetLabel
+            ),
+            formatHeaderSummaryValue(
+              "Next",
+              new Date(selectedScheduleTask.nextRunAt).toLocaleString()
+            ),
+            formatHeaderSummaryValue(
+              "Status",
+              selectedScheduleTask.lastRunStatus
+            ),
+          ]
+            .filter(Boolean)
+            .join(" • ")
+        : "Choose a scheduled task or create a new one."
+      : workspace
+        ? formatHeaderSummaryValue("Store", workspace.storeRoot)
+        : "Waiting for the runtime to resolve the min-kb-store root.";
   const orchestratorProjectPathSuggestions = useMemo(() => {
     const suggestions = new Set<string>();
     if (orchestratorCapabilities?.defaultProjectPath) {
@@ -2012,12 +2076,6 @@ export default function App() {
                   handleSelectSession(selectedAgentId, sessionId);
                 }}
                 onNewSession={handleNewSession}
-                onToggleCollapse={() =>
-                  setUiPreferences((current) => ({
-                    ...current,
-                    sidebarCollapsed: true,
-                  }))
-                }
               />
             </div>
             <SidebarResizeHandle
@@ -2056,50 +2114,15 @@ export default function App() {
                       selectedAgent?.title ??
                       "min-kb-app")}
               </h2>
-              <p>
-                {isOrchestratorAgent
-                  ? selectedOrchestratorSession
-                    ? `Model: ${
-                        selectedOrchestratorModel?.displayName ??
-                        selectedOrchestratorSession.model
-                      } • ${selectedOrchestratorSession.jobs.length} delegated job${
-                        selectedOrchestratorSession.jobs.length === 1 ? "" : "s"
-                      }${
-                        selectedOrchestratorQueuedJobCount > 0
-                          ? ` • ${selectedOrchestratorQueuedJobCount} queued`
-                          : ""
-                      } • ${selectedOrchestratorSession.status}`
-                    : orchestratorCapabilities
-                      ? `Default project path: ${orchestratorCapabilities.defaultProjectPath}`
-                      : "Waiting for orchestrator capabilities."
-                  : isScheduleAgent
-                    ? selectedScheduleTask
-                      ? `${
-                          selectedScheduleTask.targetKind === "orchestrator"
-                            ? `Session: ${
-                                selectedScheduledOrchestratorSession?.title ??
-                                selectedScheduleTask.orchestratorSessionId
-                              }`
-                            : `Agent: ${
-                                agents.find(
-                                  (agent) =>
-                                    agent.id === selectedScheduleTask.agentId
-                                )?.title ?? selectedScheduleTask.agentId
-                              }`
-                        } • Next run: ${new Date(selectedScheduleTask.nextRunAt).toLocaleString()} • ${selectedScheduleTask.lastRunStatus}`
-                      : "Choose a scheduled task or create a new one."
-                    : workspace
-                      ? `Store: ${workspace.storeRoot}`
-                      : "Waiting for the runtime to resolve the min-kb-store root."}
-              </p>
+              <p title={chatHeaderSummary}>{chatHeaderSummary}</p>
             </div>
             <div className="header-actions">
               <div className="shortcut-hint">
                 {isOrchestratorAgent
-                  ? "Cmd/Ctrl+K switch - Alt+Shift+N new session"
+                  ? "Cmd/Ctrl+K switch • Alt+Shift+N new session"
                   : isScheduleAgent
-                    ? "Cmd/Ctrl+K switch - Alt+Shift+N new schedule"
-                    : "Cmd/Ctrl+K switch - Cmd/Ctrl+Enter send"}
+                    ? "Cmd/Ctrl+K switch • Alt+Shift+N new schedule"
+                    : "Cmd/Ctrl+K switch • Cmd/Ctrl+Enter send"}
               </div>
               <div className="header-button-row">
                 {!isOrchestratorAgent && !isScheduleAgent ? (
@@ -2389,7 +2412,7 @@ export default function App() {
                       ? "Send a message..."
                       : "Choose an agent first..."
                   }
-                  rows={5}
+                  rows={4}
                   aria-label="Message composer"
                 />
                 <div className="composer-footer">
@@ -2564,6 +2587,28 @@ export default function App() {
       ) : null}
     </div>
   );
+}
+
+function formatHeaderSummaryValue(
+  label: string,
+  value?: string
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return `${label}: ${truncateMiddle(value, HEADER_VALUE_MAX_LENGTH)}`;
+}
+
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const visibleLength = Math.max(4, maxLength - 1);
+  const startLength = Math.ceil(visibleLength / 2);
+  const endLength = Math.floor(visibleLength / 2);
+  return `${value.slice(0, startLength)}…${value.slice(-endLength)}`;
 }
 
 function createDefaultConfig(

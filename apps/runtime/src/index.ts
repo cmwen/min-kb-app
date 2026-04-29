@@ -599,7 +599,7 @@ async function streamChatResponse(
 
   outgoing.writeHead(200, {
     "content-type": "application/x-ndjson; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
+    "cache-control": "no-store, no-cache, no-transform",
     connection: "keep-alive",
   });
 
@@ -867,7 +867,7 @@ async function streamOrchestratorTerminal(
 
   outgoing.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache, no-transform",
+    "cache-control": "no-store, no-cache, no-transform",
     connection: "keep-alive",
   });
   outgoing.write("retry: 1000\n\n");

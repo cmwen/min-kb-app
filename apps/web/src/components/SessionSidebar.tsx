@@ -11,7 +11,6 @@ interface SessionSidebarProps {
   emptyMessage?: string;
   onSelect: (sessionId: string) => void;
   onNewSession: () => void;
-  onToggleCollapse: () => void;
 }
 
 export function SessionSidebar(props: SessionSidebarProps) {
@@ -34,14 +33,6 @@ export function SessionSidebar(props: SessionSidebarProps) {
           </div>
         </div>
         <div className="sidebar-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={props.onToggleCollapse}
-            title="Hide the chat list"
-          >
-            Hide
-          </button>
           <button
             type="button"
             className="primary-button"

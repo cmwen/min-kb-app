@@ -342,7 +342,7 @@ p {
 .chat-pane {
   display: flex;
   flex-direction: column;
-  padding: 1.25rem;
+  padding: 1rem;
 }
 
 .session-sidebar {
@@ -371,7 +371,7 @@ p {
 
 .sidebar-header,
 .chat-pane-header {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .sidebar-header h1,
@@ -422,8 +422,8 @@ p {
 .sidebar-header p,
 .chat-pane-header p,
 .panel-caption {
-  margin-top: 0.5rem;
-  line-height: 1.5;
+  margin-top: 0.35rem;
+  line-height: 1.4;
 }
 
 .panel-caption,
@@ -438,9 +438,9 @@ p {
 .runtime-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  padding-bottom: 1rem;
-  margin-bottom: 1rem;
+  gap: 0.6rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -452,9 +452,9 @@ p {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
-  min-width: 180px;
-  padding: 0.75rem 0.9rem;
+  gap: 0.1rem;
+  min-width: 156px;
+  padding: 0.65rem 0.8rem;
 }
 
 .toolbar-chip.open {
@@ -817,10 +817,10 @@ p {
 }
 
 .queue-banner {
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.45rem;
 }
 
 .queue-list {
@@ -852,14 +852,14 @@ p {
 
 .composer-shell {
   border-top: 1px solid var(--border-soft);
-  padding-top: 1rem;
+  padding-top: 0.75rem;
 }
 
 .attachment-picker {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 0.9rem;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
 }
 
 .attachment-picker-input {
@@ -870,16 +870,16 @@ p {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.6rem;
   align-items: center;
 }
 
 .attachment-chip {
   display: flex;
   justify-content: space-between;
-  gap: 0.9rem;
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.8rem 0.9rem;
+  padding: 0.65rem 0.8rem;
   border-radius: 14px;
   border: 1px solid var(--border-soft);
   background: var(--card-bg);
@@ -959,15 +959,15 @@ p {
 .composer-footer {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: center;
-  margin-top: 0.9rem;
+  margin-top: 0.75rem;
 }
 
 .composer-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.75rem;
   font-size: 0.9rem;
 }
 
@@ -1644,10 +1644,14 @@ p {
 
 @media (max-width: 1200px) {
   .runtime-controls {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 
-  .runtime-control,
+  .runtime-control {
+    min-width: 0;
+  }
+
   .toolbar-chip {
     width: 100%;
   }
@@ -1782,17 +1786,13 @@ p {
     display: block;
     width: 100%;
     max-width: none;
-    position: sticky;
-    top: 4.45rem;
-    z-index: 18;
     border-right: 0;
     border-bottom: 1px solid var(--border-soft);
-    box-shadow: var(--shadow-soft);
   }
 
   .chat-pane {
     overflow: visible;
-    padding: 1rem 0.9rem 1.1rem;
+    padding: 0.9rem 0.8rem 1rem;
   }
 
   .sidebar-resize-handle {
@@ -1800,12 +1800,8 @@ p {
   }
 
   .chat-pane-header,
-  .composer-footer,
-  .header-actions,
-  .sidebar-header,
   .shortcut-item,
   .modal-header,
-  .terminal-toolbar,
   .palette-footer,
   .orchestrator-session-strip-header {
     flex-direction: column;
@@ -1813,11 +1809,12 @@ p {
   }
 
   .session-sidebar {
-    padding: 0.75rem 0.85rem;
+    padding: 0.65rem 0.8rem;
   }
 
   .sidebar-header {
-    margin-bottom: 0.7rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
   }
 
   .sidebar-header h1 {
@@ -1841,14 +1838,14 @@ p {
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    gap: 0.5rem;
+    gap: 0.4rem;
     padding-bottom: 0.15rem;
     scroll-snap-type: x proximity;
   }
 
   .session-card {
-    flex: 0 0 min(15rem, 72vw);
-    padding: 0.7rem 0.75rem;
+    flex: 0 0 min(13rem, 60vw);
+    padding: 0.65rem 0.7rem;
     scroll-snap-align: start;
   }
 
@@ -1870,7 +1867,7 @@ p {
   }
 
   .queue-banner {
-    padding: 0.75rem 0.85rem;
+    padding: 0.7rem 0.8rem;
   }
 
   .queued-item {
@@ -1918,6 +1915,29 @@ p {
   .composer-meta {
     gap: 0.5rem;
     font-size: 0.82rem;
+  }
+
+  .header-actions {
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .header-button-row {
+    gap: 0.5rem;
+  }
+
+  .shortcut-hint {
+    display: none;
+  }
+
+  .composer-footer {
+    align-items: stretch;
+  }
+
+  .terminal-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
   }
 
   .orchestrator-toolbar-status {
@@ -1994,7 +2014,7 @@ p {
   }
 
   .session-card {
-    flex-basis: min(13.5rem, 76vw);
+    flex-basis: min(12rem, 70vw);
   }
 
   .chat-pane {

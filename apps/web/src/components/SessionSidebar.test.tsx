@@ -31,13 +31,25 @@ describe("SessionSidebar", () => {
         notificationSessionIds={new Set(["session-1"])}
         onSelect={vi.fn()}
         onNewSession={() => undefined}
-        onToggleCollapse={() => undefined}
       />
     );
 
     expect(
       screen.queryByLabelText("Session completed while you were away")
     ).not.toBeNull();
+  });
+
+  it("keeps the create action without rendering a duplicate hide control", () => {
+    render(
+      <SessionSidebar
+        sessions={SESSIONS}
+        onSelect={vi.fn()}
+        onNewSession={() => undefined}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "New chat" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Hide" })).toBeNull();
   });
 
   it("clears the notification dot for the selected session", () => {
@@ -48,7 +60,6 @@ describe("SessionSidebar", () => {
         selectedSessionId="session-1"
         onSelect={vi.fn()}
         onNewSession={() => undefined}
-        onToggleCollapse={() => undefined}
       />
     );
 
