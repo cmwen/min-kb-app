@@ -24,7 +24,11 @@ import type {
   SkillDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
-import { chatStreamEventSchema } from "@min-kb-app/shared";
+import {
+  chatStreamEventSchema,
+  fetchJson,
+  readResponseErrorMessage,
+} from "@min-kb-app/shared";
 
 export const API_ROOT = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -236,13 +240,7 @@ export const api = {
 };
 
 async function request<T>(resource: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_ROOT}${resource}`, init);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(body || `Request failed with status ${response.status}.`);
-  }
-
-  return (await response.json()) as T;
+  return fetchJson<T>(`${API_ROOT}${resource}`, init);
 }
 
 async function requestNdjson(
@@ -252,8 +250,7 @@ async function requestNdjson(
 ): Promise<ChatResponse> {
   const response = await fetch(`${API_ROOT}${resource}`, init);
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(body || `Request failed with status ${response.status}.`);
+    throw new Error(await readResponseErrorMessage(response));
   }
   if (!response.body) {
     throw new Error("Streaming response body was empty.");

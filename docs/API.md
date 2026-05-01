@@ -10,6 +10,8 @@ Unless noted otherwise:
 - missing resources return `404` with `{ "error": "..." }`
 - unexpected failures return `500` with `{ "error": "..." }`
 
+The shared web/CLI HTTP helpers unwrap JSON error bodies shaped like `{ "error": "..." }` into plain thrown error messages. That includes non-2xx failures returned by the NDJSON chat endpoints before any stream bytes are sent.
+
 The shared request and response contracts live in `packages/shared/src/index.ts`.
 
 ## Core endpoints
@@ -67,7 +69,7 @@ Returns a provider-aware `ModelCatalog`:
 
 The runtime merges live Copilot SDK model discovery with a bundled fallback catalog. LM Studio models come from the configured OpenAI-compatible `/models` endpoint, with the environment fallback model id used when discovery is unavailable.
 
-LM Studio requests now also inherit the selected agent prompt and any enabled skill documents as injected system context. That gives local models access to agent instructions and prompt-backed skills, but MCP server execution still remains Copilot-only.
+Capability flags on each provider descriptor gate UI behavior and request handling; they do not imply feature parity between providers. For the canonical chat and orchestrator capability matrix, see [`docs/CONFIGURATION.md#provider-capabilities-at-a-glance`](CONFIGURATION.md#provider-capabilities-at-a-glance).
 
 ## Agents, sessions, and memory
 
@@ -208,10 +210,12 @@ Returns `OrchestratorCapabilities`:
 
 - whether the orchestrator is available
 - whether `tmux`, `copilot`, and `gemini` are installed
-- the default orchestrator CLI provider and its provider descriptors
+- the default orchestrator CLI provider and its provider descriptors, including `supportsCustomAgents` and `supportsExecutionMode`
 - the default project path
 - recent project paths
 - the shared tmux session name
+
+Those capability flags are intentionally narrower than the chat model catalog flags. Today the Copilot CLI provider supports both custom agents and fleet mode, while the Gemini CLI provider supports neither.
 
 ### `GET /api/orchestrator/sessions`
 

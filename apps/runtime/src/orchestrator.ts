@@ -55,11 +55,15 @@ import {
   type OrchestratorTerminalHistoryChunk,
   orchestratorCapabilitiesSchema,
 } from "@min-kb-app/shared";
+import {
+  isRuntimeSmtpConfigured,
+  readOrchestratorTmuxSessionName,
+  readRuntimeSmtpEnv,
+} from "./env.js";
 
 const execFile = promisify(execFileCallback);
 
-export const DEFAULT_TMUX_SESSION_NAME =
-  process.env.MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION ?? "min-kb-app-orchestrator";
+export const DEFAULT_TMUX_SESSION_NAME = readOrchestratorTmuxSessionName();
 
 const DIRECT_PROMPT_LIMIT = 800;
 const DIRECT_PROMPT_LINE_LIMIT = 12;
@@ -112,6 +116,7 @@ export class TmuxOrchestratorService {
   ) {}
 
   async getCapabilities(): Promise<OrchestratorCapabilities> {
+    const smtp = readRuntimeSmtpEnv();
     const [tmuxInstalled, copilotInstalled, geminiInstalled, sessions] =
       await Promise.all([
         this.commandExists("tmux"),
@@ -139,7 +144,7 @@ export class TmuxOrchestratorService {
       cliProviders,
       tmuxSessionName: this.tmuxSessionName,
       emailDeliveryAvailable: this.isEmailDeliveryConfigured(),
-      emailFromAddress: process.env.MIN_KB_APP_SMTP_FROM,
+      emailFromAddress: smtp.from,
     });
   }
 
@@ -1036,11 +1041,7 @@ export class TmuxOrchestratorService {
   }
 
   private isEmailDeliveryConfigured(): boolean {
-    return [
-      process.env.MIN_KB_APP_SMTP_HOST,
-      process.env.MIN_KB_APP_SMTP_PORT,
-      process.env.MIN_KB_APP_SMTP_FROM,
-    ].every((value) => typeof value === "string" && value.trim().length > 0);
+    return isRuntimeSmtpConfigured();
   }
 }
 

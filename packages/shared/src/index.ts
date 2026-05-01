@@ -877,3 +877,41 @@ export const apiErrorSchema = z.object({
   error: z.string().min(1),
 });
 export type ApiError = z.infer<typeof apiErrorSchema>;
+
+export function normalizeApiErrorMessage(body: string, status: number): string {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return `Request failed with status ${status}.`;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const result = apiErrorSchema.safeParse(parsed);
+    if (result.success) {
+      return result.data.error;
+    }
+  } catch {}
+  return trimmed;
+}
+
+export async function readResponseErrorMessage(
+  response: Pick<Response, "status" | "text">
+): Promise<string> {
+  return normalizeApiErrorMessage(await response.text(), response.status);
+}
+
+/**
+ * Fetches a URL, parses the response as JSON, and throws on non-2xx status.
+ *
+ * Uses the global `fetch` available in both browser (Vite) and Node ≥18 (CLI).
+ * The caller is responsible for building the full URL.
+ */
+export async function fetchJson<T>(
+  resource: string,
+  init?: RequestInit
+): Promise<T> {
+  const response = await fetch(resource, init);
+  if (!response.ok) {
+    throw new Error(await readResponseErrorMessage(response));
+  }
+  return (await response.json()) as T;
+}

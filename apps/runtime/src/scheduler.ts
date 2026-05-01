@@ -16,6 +16,7 @@ import type {
 import { DateTime } from "luxon";
 import nodemailer, { type Transporter } from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
+import { readRuntimeSmtpEnv } from "./env.js";
 import type { TmuxOrchestratorService } from "./orchestrator.js";
 
 const DAY_OF_WEEK_TO_LUXON: Record<
@@ -184,11 +185,12 @@ export class OrchestratorScheduleService {
     if (!transporter) {
       throw new Error("Email delivery is not configured.");
     }
+    const smtp = readRuntimeSmtpEnv();
     const output = await this.readJobOutput(job);
     await transporter.sendMail({
-      from: process.env.MIN_KB_APP_SMTP_FROM,
+      from: smtp.from,
       to: schedule.emailTo,
-      replyTo: process.env.MIN_KB_APP_SMTP_REPLY_TO,
+      replyTo: smtp.replyTo,
       subject: `[min-kb-app] ${schedule.title} ${job.status === "failed" ? "failed" : "completed"}`,
       text: [
         `Schedule: ${schedule.title}`,
@@ -207,30 +209,26 @@ export class OrchestratorScheduleService {
   }
 
   private getMailer(): Transporter | undefined {
-    const host = process.env.MIN_KB_APP_SMTP_HOST?.trim();
-    const portRaw = process.env.MIN_KB_APP_SMTP_PORT?.trim();
-    const from = process.env.MIN_KB_APP_SMTP_FROM?.trim();
-    if (!host || !portRaw || !from) {
+    const smtp = readRuntimeSmtpEnv();
+    if (!smtp.host || !smtp.port || !smtp.normalizedFrom) {
       return undefined;
     }
     if (this.mailer) {
       return this.mailer;
     }
-    const port = Number.parseInt(portRaw, 10);
+    const port = Number.parseInt(smtp.port, 10);
     if (!Number.isFinite(port) || port <= 0) {
       throw new Error("MIN_KB_APP_SMTP_PORT must be a positive integer.");
     }
-    const user = process.env.MIN_KB_APP_SMTP_USER?.trim();
-    const pass = process.env.MIN_KB_APP_SMTP_PASS;
     const options: SMTPTransport.Options = {
-      host,
+      host: smtp.host,
       port,
-      secure: process.env.MIN_KB_APP_SMTP_SECURE === "true",
+      secure: smtp.secure,
     };
-    if (user) {
+    if (smtp.user) {
       options.auth = {
-        user,
-        pass: pass ?? "",
+        user: smtp.user,
+        pass: smtp.pass ?? "",
       };
     }
     this.mailer = nodemailer.createTransport(options);

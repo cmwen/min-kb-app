@@ -52,6 +52,7 @@ import {
 } from "@min-kb-app/shared";
 import { type Context, Hono } from "hono";
 import { runChatFlow, runChatFlowStream } from "./chat-flow.js";
+import { readRuntimePort } from "./env.js";
 import { getHttpErrorMessage, getHttpErrorStatus } from "./http-errors.js";
 import {
   buildMemoryAnalysisPrompt,
@@ -111,7 +112,7 @@ const chatSchedules = new ChatScheduleService(workspace, {
   },
 });
 const app = new Hono<{ Bindings: HttpBindings }>();
-const port = Number(process.env.MIN_KB_APP_PORT ?? 8787);
+const port = readRuntimePort();
 const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 const webDistRoot = path.resolve(runtimeDir, "../../web/dist");
 const webDistIndex = path.join(webDistRoot, "index.html");

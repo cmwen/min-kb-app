@@ -14,7 +14,10 @@ import type {
   SkillDescriptor,
   WorkspaceSummary,
 } from "@min-kb-app/shared";
-import { DEFAULT_CHAT_MODEL as defaultChatModel } from "@min-kb-app/shared";
+import {
+  DEFAULT_CHAT_MODEL as defaultChatModel,
+  fetchJson,
+} from "@min-kb-app/shared";
 import { Command } from "commander";
 
 const runtimeUrl =
@@ -35,7 +38,7 @@ export function createProgram(): Command {
     .description("Check runtime connectivity and workspace resolution.")
     .action(async (_options, command: Command) => {
       const url = getRuntimeUrl(command);
-      const health = await requestJson<{
+      const health = await fetchJson<{
         ok: boolean;
         workspace: WorkspaceSummary;
       }>(`${url}/api/health`);
@@ -49,7 +52,7 @@ export function createProgram(): Command {
     .command("agents")
     .description("List available min-kb-store agents.")
     .action(async (_options, command: Command) => {
-      const agents = await requestJson<AgentSummary[]>(
+      const agents = await fetchJson<AgentSummary[]>(
         `${getRuntimeUrl(command)}/api/agents`
       );
       for (const agent of agents) {
@@ -63,7 +66,7 @@ export function createProgram(): Command {
     .description("List sessions for an agent.")
     .argument("<agentId>", "Agent identifier")
     .action(async (agentId: string, _options, command: Command) => {
-      const sessions = await requestJson<ChatSessionSummary[]>(
+      const sessions = await fetchJson<ChatSessionSummary[]>(
         `${getRuntimeUrl(command)}/api/agents/${agentId}/sessions`
       );
       for (const session of sessions) {
@@ -77,7 +80,7 @@ export function createProgram(): Command {
     .description("List merged skills for an agent.")
     .argument("<agentId>", "Agent identifier")
     .action(async (agentId: string, _options, command: Command) => {
-      const skills = await requestJson<SkillDescriptor[]>(
+      const skills = await fetchJson<SkillDescriptor[]>(
         `${getRuntimeUrl(command)}/api/agents/${agentId}/skills`
       );
       for (const skill of skills) {
@@ -284,7 +287,7 @@ async function sendMessage(
     ? `${runtimeUrl}/api/agents/${agentId}/sessions/${request.sessionId}/messages`
     : `${runtimeUrl}/api/agents/${agentId}/sessions`;
 
-  return requestJson<ChatResponse>(url, {
+  return fetchJson<ChatResponse>(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -299,7 +302,7 @@ async function queueOrchestratorJob(
   options: OrchestrateOptions
 ): Promise<OrchestratorSession> {
   if (options.session) {
-    return requestJson<OrchestratorSession>(
+    return fetchJson<OrchestratorSession>(
       `${runtimeUrl}/api/orchestrator/sessions/${options.session}/jobs`,
       {
         method: "POST",
@@ -330,7 +333,7 @@ async function queueOrchestratorJob(
     executionMode: parseExecutionMode(options.executionMode),
     prompt,
   };
-  return requestJson<OrchestratorSession>(
+  return fetchJson<OrchestratorSession>(
     `${runtimeUrl}/api/orchestrator/sessions`,
     {
       method: "POST",
@@ -359,7 +362,7 @@ async function waitForOrchestratorJob(
   let lastStatusSignal = "";
 
   while (Date.now() <= deadline) {
-    const session = await requestJson<OrchestratorSession>(
+    const session = await fetchJson<OrchestratorSession>(
       `${runtimeUrl}/api/orchestrator/sessions/${sessionId}`
     );
     const job = session.jobs.find((candidate) => candidate.jobId === jobId);
@@ -435,15 +438,6 @@ function getRuntimeUrl(command: Command): string {
 
 function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
-}
-
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Request failed (${response.status}): ${body}`);
-  }
-  return (await response.json()) as T;
 }
 
 const program = createProgram();

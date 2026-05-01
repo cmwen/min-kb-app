@@ -57,6 +57,8 @@ packages/
    export MIN_KB_STORE_ROOT=/absolute/path/to/min-kb-store
    ```
 
+   For a minimal local env template, see [`.env.example`](.env.example). It is a reference file only; export the values you need from your shell, `direnv`, or process manager because the app does not load `.env` files automatically.
+
 2. Install dependencies.
 
    ```bash
@@ -152,7 +154,7 @@ Configuration is split across environment variables, browser-local state, and pe
 - `MIN_KB_STORE_ROOT` tells the runtime where to find `min-kb-store`
 - `MIN_KB_APP_PORT` controls the runtime HTTP port
 - `MIN_KB_APP_ORCHESTRATOR_TMUX_SESSION` overrides the shared tmux session name used by the built-in orchestrator agent
-- `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, and `MIN_KB_APP_SMTP_FROM` enable legacy orchestrator schedule email delivery from the runtime; scheduled chats should prefer agent skills for email workflows
+- `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, `MIN_KB_APP_SMTP_SECURE`, `MIN_KB_APP_SMTP_USER`, `MIN_KB_APP_SMTP_PASS`, `MIN_KB_APP_SMTP_FROM`, and optional `MIN_KB_APP_SMTP_REPLY_TO` enable legacy orchestrator schedule email delivery from the runtime; scheduled chats should prefer agent skills for email workflows
 - `MIN_KB_APP_RUNTIME_URL` controls the CLI target
 - `MIN_KB_APP_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` authenticate the Gemini SDK runtime provider
 - `MIN_KB_APP_GEMINI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_VERTEXAI`, `MIN_KB_APP_GEMINI_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `MIN_KB_APP_GEMINI_LOCATION`, `GOOGLE_CLOUD_LOCATION`, and `MIN_KB_APP_GEMINI_API_VERSION` configure Gemini Vertex/API routing when needed
@@ -194,6 +196,8 @@ Model options are loaded from the runtime as a provider-aware catalog. GitHub Co
 When Gemini or LM Studio is selected, the runtime injects the chosen agent prompt plus any enabled `SKILL.md` documents into the request as prompt-backed system context. That gives non-Copilot providers a middle-tier workflow closer to agent behavior without claiming native Copilot skill execution. MCP server wiring still remains Copilot-only.
 
 The runtime model dropdown lets you switch providers per session. Skills, MCP servers, and reasoning effort stay enabled only when the selected provider advertises support for them. LM Studio also exposes a thinking-mode override that maps to its custom `enable_thinking` request flag for models like Gemma 4. Gemini currently keeps prompt-backed skills available, but not MCP wiring or reasoning-effort controls. In orchestrator sessions, Copilot keeps custom-agent and fleet-mode controls while Gemini sessions stay on standard execution without custom agents.
+
+For the canonical provider capability matrix, see [`docs/CONFIGURATION.md#provider-capabilities-at-a-glance`](docs/CONFIGURATION.md#provider-capabilities-at-a-glance).
 
 ## Troubleshooting
 

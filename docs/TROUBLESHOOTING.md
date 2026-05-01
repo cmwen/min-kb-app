@@ -20,6 +20,8 @@ If the runtime cannot resolve your store root, set `MIN_KB_STORE_ROOT` explicitl
 
 The runtime exposes a provider-aware model catalog. For GitHub Copilot it first asks the Copilot SDK for the current model catalog. If that lookup fails, the app falls back to a bundled catalog so the selector is still usable.
 
+The capability flags behind those runtime controls are documented in [`docs/CONFIGURATION.md#provider-capabilities-at-a-glance`](CONFIGURATION.md#provider-capabilities-at-a-glance). They gate the UI and runtime behavior, but they do not mean every provider has the same implementation underneath.
+
 If you expect more models than you see:
 
 - confirm GitHub Copilot authentication for the local SDK environment
@@ -43,7 +45,7 @@ Check the composer footer and runtime controls:
 
 - no agent selected means the send button stays disabled
 - invalid MCP JSON blocks sending until the JSON parses again
-- some providers intentionally disable skills, MCP servers, or reasoning effort based on their capability flags; LM Studio keeps skills enabled as prompt context but still disables MCP wiring and reasoning effort controls
+- some providers intentionally disable skills, MCP servers, or reasoning effort based on their capability flags; Gemini and LM Studio keep skills available as prompt-backed context but still disable MCP wiring and reasoning effort controls
 - runtime/network failures queue the message for retry instead of silently dropping it
 
 If the message only contains an attachment, keep in mind the runtime still requires at least one of `prompt` or `attachment`; an empty prompt plus a valid attachment is allowed.
@@ -81,6 +83,10 @@ The built-in `copilot-orchestrator` agent requires `tmux` plus at least one supp
 - open the orchestrator workspace and check the capability banner for missing dependencies
 - if a pane gets stuck, use the restart action to recreate it without deleting the saved session
 - if a Gemini-backed job prints `You have exhausted your capacity on this model.`, that message comes from the Gemini CLI provider inside tmux rather than from tmux itself; switch to a model/account with available quota or retry later
+
+## Scheduled email delivery is not working
+
+Legacy orchestrator schedule emails only send when `MIN_KB_APP_SMTP_HOST`, `MIN_KB_APP_SMTP_PORT`, and `MIN_KB_APP_SMTP_FROM` are configured. `MIN_KB_APP_SMTP_REPLY_TO` is optional and only sets the `Reply-To` header; it does not enable delivery by itself.
 
 ## The web app cannot reach a non-default runtime URL
 

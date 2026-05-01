@@ -22,7 +22,7 @@ Normal chat sessions keep session-scoped runtime controls in dropdowns at the to
 - `Skills` opens grouped skill toggles by scope.
 - `MCP` opens the raw MCP JSON editor with validation feedback.
 
-Switching providers is session-scoped. GitHub Copilot keeps skills, MCP servers, and reasoning effort available; LM Studio now keeps skill toggles available by injecting enabled skills into the local-model prompt, while still disabling MCP wiring and reasoning controls that the provider does not support. For supported local models such as Gemma 4, LM Studio also exposes a thinking-mode override so you can request quicker visible replies with thinking disabled.
+Switching providers is session-scoped. GitHub Copilot keeps skills, MCP servers, and reasoning effort available; LM Studio now keeps skill toggles available by injecting enabled skills into the local-model prompt, while still disabling MCP wiring and reasoning controls that the provider does not support. For supported local models such as Gemma 4, LM Studio also exposes a thinking-mode override so you can request quicker visible replies with thinking disabled. See [Provider capabilities at a glance](CONFIGURATION.md#provider-capabilities-at-a-glance) in CONFIGURATION.md for the authoritative per-provider feature matrix.
 
 Those choices are still saved with the chat session runtime config and persist to `RUNTIME.json` when a chat is written to disk. New chats now seed those controls from the selected agent's `RUNTIME.json` defaults when available.
 

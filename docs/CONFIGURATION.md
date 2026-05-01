@@ -33,10 +33,17 @@ This project stores configuration and session metadata in three places:
 | `MIN_KB_APP_LM_STUDIO_CHAT_TIMEOUT_MS` | runtime LM Studio provider | `600000` | Timeout for LM Studio `/chat/completions` requests when slower local models need more time |
 | `MIN_KB_APP_LM_STUDIO_MAX_COMPLETION_TOKENS` | runtime LM Studio provider | `8192` | Preferred LM Studio completion-token cap sent with `/chat/completions` so reasoning models have room to finish visible output |
 | `LM_STUDIO_MAX_COMPLETION_TOKENS` | runtime LM Studio provider | `8192` | Backward-compatible fallback for the LM Studio completion-token cap |
+| `MIN_KB_APP_SMTP_HOST` | runtime scheduler email delivery | none | SMTP host for scheduled-job email delivery |
+| `MIN_KB_APP_SMTP_PORT` | runtime scheduler email delivery | none | SMTP port for scheduled-job email delivery |
+| `MIN_KB_APP_SMTP_FROM` | runtime scheduler email delivery | none | Sender address for scheduled-job email delivery |
+| `MIN_KB_APP_SMTP_SECURE` | runtime scheduler email delivery | `false` | Enables TLS when set to `true` |
+| `MIN_KB_APP_SMTP_USER` | runtime scheduler email delivery | none | Optional SMTP username for authenticated delivery |
+| `MIN_KB_APP_SMTP_PASS` | runtime scheduler email delivery | none | Optional SMTP password paired with `MIN_KB_APP_SMTP_USER` |
+| `MIN_KB_APP_SMTP_REPLY_TO` | runtime scheduler email delivery | none | Optional `Reply-To` address for scheduled-job emails |
 | `VITE_API_BASE_URL` | web build | empty string | Overrides the web app API root instead of using same-origin `/api` |
 | `VITE_BASE_PATH` | web build | inferred from the GitHub Pages workflow or `/` locally | Overrides the Vite base path for static hosting |
 
-See [`.env.example`](../.env.example) for a minimal local setup.
+See [`.env.example`](../.env.example) for a minimal local setup. It is a reference file only; export the values you need from your shell, `direnv`, or process manager because the app does not load `.env` files automatically.
 
 ## Chat session runtime config
 
@@ -142,6 +149,19 @@ The LM Studio provider discovers local models from its OpenAI-compatible `/model
 When sending a chat request through Gemini or LM Studio, the runtime prepends the selected agent prompt and any enabled skill documents as prompt context. This improves non-Copilot behavior for agentic workflows while staying honest about the runtime boundary: MCP server wiring and native tool execution still require the GitHub Copilot provider.
 
 The web UI shows the reasoning effort selector only when the selected provider and model expose supported reasoning effort values. LM Studio also shows a provider-specific thinking-mode selector that sends the model's custom `enable_thinking` flag when you want quicker replies from supported models such as Gemma 4. Skills and MCP configuration remain visible but disabled when the provider does not support those capabilities. In the orchestrator workspace, Copilot sessions expose custom-agent and fleet-mode controls, while Gemini sessions intentionally limit those controls to the subset supported by the `gemini` CLI.
+
+## Provider capabilities at a glance
+
+| Capability | Copilot | Gemini | LM Studio |
+| --- | --- | --- | --- |
+| Prompt-backed skills (`SKILL.md` injection) | ✅ | ✅ | ✅ |
+| MCP server wiring (native tool execution) | ✅ | ❌ | ❌ |
+| Reasoning effort controls | ✅ | ❌ | ❌ |
+| Thinking-mode override (`enable_thinking`) | ❌ | ❌ | ✅ |
+| Orchestrator custom agents | ✅ | ❌ | ❌ |
+| Orchestrator fleet mode | ✅ | ❌ | ❌ |
+
+> **Copilot** uses native MCP wiring and GitHub Copilot SDK tool execution. **Gemini** and **LM Studio** rely on prompt-backed skill injection only. Fleet mode and custom-agent selection in the orchestrator are Copilot-only because they map to `copilot --fleet` and `--agent` CLI flags.
 
 ## MCP JSON
 
