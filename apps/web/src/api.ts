@@ -142,6 +142,13 @@ export const api = {
         body: JSON.stringify(requestBody),
       }
     ),
+  retryOrchestratorJob: (sessionId: string, jobId: string) =>
+    request<OrchestratorSession>(
+      `/api/orchestrator/sessions/${sessionId}/jobs/${jobId}/retry`,
+      {
+        method: "POST",
+      }
+    ),
   sendOrchestratorInput: (
     sessionId: string,
     requestBody: OrchestratorTerminalInputRequest

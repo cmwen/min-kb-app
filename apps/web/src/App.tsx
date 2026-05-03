@@ -62,6 +62,10 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle";
 import { SingleAttachmentPicker } from "./components/SingleAttachmentPicker";
 import {
+  getAdaptivePollDelayMs,
+  readReconnectCostHints,
+} from "./mobile-reconnect";
+import {
   findModelDescriptor,
   formatReasoningEffort,
   normalizeConfigForModel,
@@ -81,6 +85,7 @@ import {
   requestBrowserNotificationPermission,
 } from "./task-completion-notifications";
 import {
+  clampOrchestratorTerminalHeight,
   clampSidebarWidth,
   getVisibleModels,
   resolveTheme,
@@ -197,6 +202,14 @@ export default function App() {
   const windowFocusedRef = useRef(
     typeof document === "undefined" ? true : document.hasFocus()
   );
+  const sessionRefreshTimeoutRef = useRef<number | undefined>(undefined);
+  const sessionRefreshInFlightRef = useRef(false);
+  const queuedImmediateSessionRefreshRef = useRef(false);
+  const sessionRefreshFailureCountRef = useRef(0);
+  const triggerSessionRefreshRef = useRef<(() => void) | undefined>(undefined);
+  const threadsByKeyRef = useRef<Record<string, ChatSession>>(
+    cachedSnapshot.threadsByKey
+  );
   const [workspace, setWorkspace] = useState<WorkspaceSummary | undefined>(
     cachedSnapshot.workspace
   );
@@ -262,6 +275,12 @@ export default function App() {
     useState<BrowserNotificationPermission>(() =>
       getBrowserNotificationPermission()
     );
+  const [mobileViewport, setMobileViewport] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 920px)").matches
+      : false
+  );
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
     typeof window !== "undefined"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -418,6 +437,9 @@ export default function App() {
   );
   const selectedAgentHasNotifications =
     selectedAgentId !== undefined && notificationAgentIds.has(selectedAgentId);
+  const sidebarVisible = mobileViewport
+    ? mobileSidebarOpen
+    : !uiPreferences.sidebarCollapsed;
   const scheduleTargetLabel =
     selectedScheduleTask?.targetKind === "orchestrator"
       ? (selectedScheduledOrchestratorSession?.title ??
@@ -512,8 +534,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 920px)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setMobileViewport(event.matches);
+      if (!event.matches) {
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    setMobileViewport(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    threadsByKeyRef.current = threadsByKey;
+  }, [threadsByKey]);
 
   useEffect(() => {
     saveSnapshot({
@@ -587,16 +627,31 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    const triggerImmediateSessionRefresh = () => {
+      sessionRefreshFailureCountRef.current = 0;
+      triggerSessionRefreshRef.current?.();
+    };
     const handleVisibilityChange = () => {
       pageVisibleRef.current = document.visibilityState !== "hidden";
       setBrowserNotificationPermission(getBrowserNotificationPermission());
+      if (pageVisibleRef.current) {
+        triggerImmediateSessionRefresh();
+      }
     };
     const handleFocus = () => {
       windowFocusedRef.current = document.hasFocus();
       setBrowserNotificationPermission(getBrowserNotificationPermission());
+      triggerImmediateSessionRefresh();
     };
     const handleBlur = () => {
       windowFocusedRef.current = false;
+    };
+    const handleOnline = () => {
+      setOffline(false);
+      triggerImmediateSessionRefresh();
+    };
+    const handlePageShow = () => {
+      triggerImmediateSessionRefresh();
     };
 
     handleVisibilityChange();
@@ -605,10 +660,14 @@ export default function App() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", handleFocus);
     window.addEventListener("blur", handleBlur);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("pageshow", handlePageShow);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
       window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("pageshow", handlePageShow);
     };
   }, []);
 
@@ -691,34 +750,150 @@ export default function App() {
 
   useEffect(() => {
     if (agents.length === 0) {
+      triggerSessionRefreshRef.current = undefined;
       return;
     }
 
     let cancelled = false;
-    void (async () => {
-      const results = await Promise.allSettled(
-        agents.map(
-          async (agent) => [agent.id, await api.listSessions(agent.id)] as const
-        )
-      );
+    const clearScheduledRefresh = () => {
+      if (sessionRefreshTimeoutRef.current !== undefined) {
+        window.clearTimeout(sessionRefreshTimeoutRef.current);
+        sessionRefreshTimeoutRef.current = undefined;
+      }
+    };
+    const scheduleNextRefresh = (attempt: number) => {
+      clearScheduledRefresh();
       if (cancelled) {
         return;
       }
-
-      setSessionsByAgent((current) => {
-        const next = { ...current };
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            const [agentId, agentSessions] = result.value;
-            next[agentId] = agentSessions;
-          }
-        }
-        return next;
+      const delayMs = getAdaptivePollDelayMs({
+        ...readReconnectCostHints(),
+        attempt,
+        pageVisible: pageVisibleRef.current,
       });
-    })();
+      sessionRefreshTimeoutRef.current = window.setTimeout(() => {
+        sessionRefreshTimeoutRef.current = undefined;
+        void refreshSessionsInBackground();
+      }, delayMs);
+    };
+    const refreshSessionsInBackground = async () => {
+      if (cancelled) {
+        return;
+      }
+      if (sessionRefreshInFlightRef.current) {
+        queuedImmediateSessionRefreshRef.current = true;
+        return;
+      }
+
+      sessionRefreshInFlightRef.current = true;
+      try {
+        const results = await Promise.allSettled(
+          agents.map(
+            async (agent) =>
+              [agent.id, await api.listSessions(agent.id)] as const
+          )
+        );
+        if (cancelled) {
+          return;
+        }
+
+        const succeeded = results.filter(
+          (
+            result
+          ): result is PromiseFulfilledResult<
+            readonly [string, ChatSessionSummary[]]
+          > => result.status === "fulfilled"
+        );
+        const failed = results.filter(
+          (result): result is PromiseRejectedResult =>
+            result.status === "rejected"
+        );
+        const staleThreadKeys = new Set<string>();
+
+        if (succeeded.length > 0) {
+          setSessionsByAgent((current) => {
+            const next = { ...current };
+            for (const [agentId, agentSessions] of succeeded.map(
+              (result) => result.value
+            )) {
+              const previousSessions = current[agentId] ?? [];
+              const previousSessionsById = new Map(
+                previousSessions.map((session) => [session.sessionId, session])
+              );
+              for (const session of agentSessions) {
+                const previousSession = previousSessionsById.get(
+                  session.sessionId
+                );
+                if (
+                  previousSession &&
+                  didSessionSummaryChange(previousSession, session) &&
+                  threadsByKeyRef.current[
+                    getThreadKey(session.agentId, session.sessionId)
+                  ]
+                ) {
+                  staleThreadKeys.add(
+                    getThreadKey(session.agentId, session.sessionId)
+                  );
+                }
+              }
+              next[agentId] = agentSessions;
+            }
+            return next;
+          });
+        }
+
+        if (staleThreadKeys.size > 0) {
+          setStaleThreadKeys((current) => {
+            const next = { ...current };
+            for (const threadKey of staleThreadKeys) {
+              next[threadKey] = true;
+            }
+            return next;
+          });
+        }
+
+        if (failed.length === 0) {
+          sessionRefreshFailureCountRef.current = 0;
+          setOffline(false);
+          setError(undefined);
+        } else if (succeeded.length === 0) {
+          sessionRefreshFailureCountRef.current += 1;
+          setOffline(true);
+          setError(getErrorMessage(failed[0]?.reason));
+        } else {
+          sessionRefreshFailureCountRef.current = 0;
+          setOffline(false);
+        }
+      } finally {
+        sessionRefreshInFlightRef.current = false;
+        if (!cancelled && queuedImmediateSessionRefreshRef.current) {
+          queuedImmediateSessionRefreshRef.current = false;
+          void refreshSessionsInBackground();
+        } else if (!cancelled) {
+          scheduleNextRefresh(sessionRefreshFailureCountRef.current);
+        }
+      }
+    };
+
+    triggerSessionRefreshRef.current = () => {
+      clearScheduledRefresh();
+      if (sessionRefreshInFlightRef.current) {
+        queuedImmediateSessionRefreshRef.current = true;
+        return;
+      }
+      void refreshSessionsInBackground();
+    };
+
+    if (Object.keys(sessionsByAgent).length === 0) {
+      void refreshSessionsInBackground();
+    } else {
+      scheduleNextRefresh(sessionRefreshFailureCountRef.current);
+    }
 
     return () => {
       cancelled = true;
+      triggerSessionRefreshRef.current = undefined;
+      clearScheduledRefresh();
     };
   }, [agents]);
 
@@ -1130,6 +1305,7 @@ export default function App() {
   function handleSelectAgent(agentId: string) {
     setSelectedAgentId(agentId);
     setSelectedSessionId(undefined);
+    setMobileSidebarOpen(false);
     setPreferNewSession(false);
     setDeferInitialSessionLoad(false);
     setSessionLoadPending(false);
@@ -1150,6 +1326,7 @@ export default function App() {
   function handleSelectSession(agentId: string, sessionId: string) {
     setSelectedAgentId(agentId);
     setSelectedSessionId(sessionId);
+    setMobileSidebarOpen(false);
     setPreferNewSession(false);
     setDeferInitialSessionLoad(false);
     setError(undefined);
@@ -1167,6 +1344,7 @@ export default function App() {
 
   function handleNewSession() {
     setSelectedSessionId(undefined);
+    setMobileSidebarOpen(false);
     setPreferNewSession(true);
     setDeferInitialSessionLoad(false);
     const defaultConfig = normalizeConfigForModel(
@@ -1185,6 +1363,17 @@ export default function App() {
     if (!isOrchestratorAgent && !isScheduleAgent) {
       focusComposer();
     }
+  }
+
+  function handleToggleSidebar() {
+    if (mobileViewport) {
+      setMobileSidebarOpen((current) => !current);
+      return;
+    }
+    setUiPreferences((current) => ({
+      ...current,
+      sidebarCollapsed: !current.sidebarCollapsed,
+    }));
   }
 
   async function handleRequestBrowserNotifications() {
@@ -1433,6 +1622,24 @@ export default function App() {
       setOffline(false);
     } catch (inputError) {
       setError(getErrorMessage(inputError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRetryOrchestratorJob(jobId: string) {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setBusy(true);
+    setError(undefined);
+    try {
+      const session = await api.retryOrchestratorJob(selectedSessionId, jobId);
+      storeOrchestratorSession(session);
+      setOffline(false);
+    } catch (retryError) {
+      setError(getErrorMessage(retryError));
     } finally {
       setBusy(false);
     }
@@ -2033,7 +2240,15 @@ export default function App() {
         }}
       />
       <div className="workspace-shell">
-        {!uiPreferences.sidebarCollapsed ? (
+        {mobileViewport && sidebarVisible ? (
+          <button
+            type="button"
+            className="mobile-sidebar-backdrop"
+            aria-label="Hide sidebar"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+        ) : null}
+        {sidebarVisible ? (
           <>
             <div
               className="session-sidebar-shell"
@@ -2092,360 +2307,383 @@ export default function App() {
         ) : null}
 
         <main className="chat-pane" aria-busy={busy || analyzingMemory}>
-          <header className="chat-pane-header">
-            <div>
-              <div className="eyebrow">
-                {isOrchestratorAgent
-                  ? "Orchestrator"
-                  : isScheduleAgent
-                    ? "Schedules"
-                    : "Conversation"}
-              </div>
-              <h2>
-                {isOrchestratorAgent
-                  ? (selectedOrchestratorSession?.title ??
-                    selectedAgent?.title ??
-                    "min-kb-app")
-                  : isScheduleAgent
-                    ? (selectedScheduleTask?.title ??
+          <div
+            className={
+              isOrchestratorAgent || isScheduleAgent
+                ? "chat-pane-inner chat-pane-inner-wide"
+                : "chat-pane-inner"
+            }
+          >
+            <header className="chat-pane-header">
+              <div className="chat-pane-heading">
+                <div className="eyebrow">
+                  {isOrchestratorAgent
+                    ? "Orchestrator"
+                    : isScheduleAgent
+                      ? "Schedules"
+                      : "Conversation"}
+                </div>
+                <h2>
+                  {isOrchestratorAgent
+                    ? (selectedOrchestratorSession?.title ??
                       selectedAgent?.title ??
                       "min-kb-app")
-                    : (selectedThread?.title ??
-                      selectedAgent?.title ??
-                      "min-kb-app")}
-              </h2>
-              <p title={chatHeaderSummary}>{chatHeaderSummary}</p>
-            </div>
-            <div className="header-actions">
-              <div className="shortcut-hint">
-                {isOrchestratorAgent
-                  ? "Cmd/Ctrl+K switch • Alt+Shift+N new session"
-                  : isScheduleAgent
-                    ? "Cmd/Ctrl+K switch • Alt+Shift+N new schedule"
-                    : "Cmd/Ctrl+K switch • Cmd/Ctrl+Enter send"}
-              </div>
-              <div className="header-button-row">
-                {!isOrchestratorAgent && !isScheduleAgent ? (
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => void handleAnalyzeMemory()}
-                    disabled={
-                      !selectedSessionId ||
-                      !selectedThread ||
-                      !hasMemorySkills ||
-                      busy ||
-                      analyzingMemory
-                    }
-                    title={
-                      hasMemorySkills
-                        ? "Analyze this chat with GPT-5 mini and memory skills"
-                        : "No memory-related skills detected for this agent"
-                    }
-                  >
-                    {analyzingMemory ? "Analyzing..." : "Analyze memory"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="ghost-button danger-button"
-                  onClick={promptDeleteSelectedSession}
-                  disabled={!selectedSessionId || busy || deletePending}
-                  title={
-                    isOrchestratorAgent
-                      ? "Delete the selected orchestrator session"
-                      : isScheduleAgent
-                        ? "Delete the selected scheduled task"
-                        : "Delete the selected chat history"
-                  }
-                >
-                  {isOrchestratorAgent
-                    ? "Delete session"
                     : isScheduleAgent
-                      ? "Delete schedule"
-                      : "Delete chat"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => {
-                    setSettingsOpen(false);
-                    setCommandPaletteOpen(true);
-                  }}
-                >
-                  Switch
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button sidebar-toggle-button"
-                  onClick={() =>
-                    setUiPreferences((current) => ({
-                      ...current,
-                      sidebarCollapsed: !current.sidebarCollapsed,
-                    }))
-                  }
-                >
-                  {uiPreferences.sidebarCollapsed ? "Show list" : "Hide list"}
-                  {uiPreferences.sidebarCollapsed &&
-                  selectedAgentHasNotifications ? (
-                    <span
-                      className="sidebar-notification-dot"
-                      role="img"
-                      aria-label="Completed work waiting in chats"
-                    />
-                  ) : null}
-                </button>
+                      ? (selectedScheduleTask?.title ??
+                        selectedAgent?.title ??
+                        "min-kb-app")
+                      : (selectedThread?.title ??
+                        selectedAgent?.title ??
+                        "min-kb-app")}
+                </h2>
+                <p title={chatHeaderSummary}>{chatHeaderSummary}</p>
               </div>
-            </div>
-          </header>
-
-          {!isOrchestratorAgent && !isScheduleAgent ? (
-            <RuntimeControls
-              providers={providers}
-              models={models}
-              visibleModels={visibleModels}
-              skills={skills}
-              config={config}
-              mcpText={mcpText}
-              mcpError={mcpError}
-              onProviderChange={(provider) =>
-                setConfig((current) =>
-                  normalizeConfigForModel({ ...current, provider }, models)
-                )
-              }
-              onModelChange={(model) =>
-                setConfig((current) =>
-                  normalizeConfigForModel({ ...current, model }, models)
-                )
-              }
-              onReasoningEffortChange={(reasoningEffort) =>
-                setConfig((current) =>
-                  normalizeConfigForModel(
-                    { ...current, reasoningEffort },
-                    models
-                  )
-                )
-              }
-              onLmStudioEnableThinkingChange={(lmStudioEnableThinking) =>
-                setConfig((current) => ({
-                  ...current,
-                  lmStudioEnableThinking,
-                }))
-              }
-              onSkillToggle={handleToggleSkill}
-              onMcpTextChange={handleMcpTextChange}
-            />
-          ) : null}
-
-          {queue.length > 0 ? (
-            <section className="queue-banner" aria-label="Queued messages">
-              <strong>{queue.length} queued message(s)</strong>
-              <div className="queue-list">
-                {queue.map((message) => (
-                  <button
-                    type="button"
-                    key={message.id}
-                    className="queued-item"
-                    onClick={() => void handleRetryQueuedMessage(message)}
-                  >
-                    <span className="queued-item-title">
-                      Retry {message.agentId}
-                    </span>
-                    <span className="queued-item-meta">
-                      {new Date(message.createdAt).toLocaleTimeString()}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {isOrchestratorAgent ? (
-            <OrchestratorPane
-              capabilities={orchestratorCapabilities}
-              session={selectedOrchestratorSession}
-              schedules={selectedOrchestratorSchedules}
-              models={visibleOrchestratorModels}
-              defaultCliProvider={
-                orchestratorCapabilities?.defaultCliProvider ?? defaultProvider
-              }
-              defaultModelId={config.model}
-              allSessions={Object.values(orchestratorSessionsById)}
-              projectPathSuggestions={orchestratorProjectPathSuggestions}
-              pending={busy}
-              error={error}
-              onCreateSession={(request) =>
-                void handleCreateOrchestratorSession(request)
-              }
-              onUpdateSession={(request) =>
-                void handleUpdateOrchestratorSession(request)
-              }
-              onSelectSession={(sessionId) =>
-                handleSelectSession(ORCHESTRATOR_AGENT_ID, sessionId)
-              }
-              onDeleteOlderDuplicates={promptDeleteOlderOrchestratorDuplicates}
-              onDelegate={(request) =>
-                void handleDelegateOrchestratorPrompt(request)
-              }
-              onSendInput={(input, submit) =>
-                void handleSendOrchestratorInput(input, submit)
-              }
-              onCancelJob={() => void handleCancelOrchestratorJob()}
-              onRestartSession={promptRestartSelectedOrchestratorSession}
-              onDeleteQueuedJob={promptDeleteQueuedJob}
-              onCreateSchedule={(request) =>
-                void handleCreateOrchestratorSchedule(request)
-              }
-              onUpdateSchedule={(scheduleId, request) =>
-                void handleUpdateOrchestratorSchedule(scheduleId, request)
-              }
-              onDeleteSchedule={(scheduleId, sessionId) =>
-                void handleDeleteOrchestratorSchedule(scheduleId, sessionId)
-              }
-              onSessionUpdate={(session) => storeOrchestratorSession(session)}
-            />
-          ) : isScheduleAgent ? (
-            <SchedulePane
-              task={selectedScheduleTask}
-              thread={selectedScheduleThread}
-              chatAgents={agents.filter((agent) => agent.kind === "chat")}
-              orchestratorSessions={
-                sessionsByAgent[ORCHESTRATOR_AGENT_ID] ?? []
-              }
-              orchestratorSession={selectedScheduledOrchestratorSession}
-              pending={busy}
-              error={error}
-              onCreateTask={(request) =>
-                void handleCreateScheduledTask(request)
-              }
-              onUpdateTask={(scheduleId, request) =>
-                void handleUpdateScheduledTask(scheduleId, request)
-              }
-              onDeleteTask={() => promptDeleteSelectedSession()}
-              onRunNow={(scheduleId) => void handleRunScheduledTask(scheduleId)}
-              onOpenTarget={(task) => {
-                if (
-                  task.targetKind === "orchestrator" &&
-                  task.orchestratorSessionId
-                ) {
-                  handleSelectSession(
-                    ORCHESTRATOR_AGENT_ID,
-                    task.orchestratorSessionId
-                  );
-                  return;
-                }
-                if (task.agentId && task.chatSessionId) {
-                  handleSelectSession(task.agentId, task.chatSessionId);
-                }
-              }}
-            />
-          ) : (
-            <>
-              {selectedSessionId &&
-              !preferNewSession &&
-              !selectedThread &&
-              selectedSessionSummary ? (
-                <section className="chat-empty-state">
-                  <h2>{selectedSessionSummary.title}</h2>
-                  <p>
-                    {sessionLoadPending &&
-                    sessionLoadTarget ===
-                      `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
-                      ? "Loading this chat without blocking the rest of the app."
-                      : "Open this chat on demand to avoid loading a large history during startup."}
-                  </p>
-                  <div className="panel-actions">
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() =>
-                        void openSession(
-                          selectedSessionSummary.agentId,
-                          selectedSessionSummary.sessionId
-                        )
-                      }
-                      disabled={sessionLoadPending}
-                    >
-                      {sessionLoadPending &&
-                      sessionLoadTarget ===
-                        `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
-                        ? "Loading..."
-                        : "Open chat"}
-                    </button>
+              <div className="header-actions">
+                <div className="header-button-row">
+                  {!isOrchestratorAgent && !isScheduleAgent ? (
                     <button
                       type="button"
                       className="ghost-button"
-                      onClick={handleNewSession}
+                      onClick={() => void handleAnalyzeMemory()}
+                      disabled={
+                        !selectedSessionId ||
+                        !selectedThread ||
+                        !hasMemorySkills ||
+                        busy ||
+                        analyzingMemory
+                      }
+                      title={
+                        hasMemorySkills
+                          ? "Analyze this chat with GPT-5 mini and memory skills"
+                          : "No memory-related skills detected for this agent"
+                      }
                     >
-                      New chat
+                      {analyzingMemory ? "Analyzing..." : "Analyze memory"}
                     </button>
-                  </div>
-                  {error ? (
-                    <div className="error-row" role="alert">
-                      {error}
-                    </div>
                   ) : null}
-                </section>
-              ) : (
-                <ChatTimeline
-                  thread={selectedThread}
-                  pending={busy}
-                  pendingAssistantText={pendingAssistantSnapshot.assistantText}
-                  pendingThinkingText={pendingAssistantSnapshot.thinkingText}
-                  error={error}
-                />
-              )}
-
-              <div className="composer-shell">
-                <SingleAttachmentPicker
-                  file={chatAttachment}
-                  pending={busy}
-                  onChange={setChatAttachment}
-                />
-                <textarea
-                  ref={composerRef}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={handleComposerKeyDown}
-                  placeholder={
-                    selectedAgentId
-                      ? "Send a message..."
-                      : "Choose an agent first..."
-                  }
-                  rows={4}
-                  aria-label="Message composer"
-                />
-                <div className="composer-footer">
-                  <div className="composer-meta">
-                    <span>
-                      Model: {selectedModel?.displayName ?? config.model}
-                    </span>
-                    {config.reasoningEffort ? (
-                      <span>
-                        Reasoning:{" "}
-                        {formatReasoningEffort(config.reasoningEffort)}
-                      </span>
-                    ) : null}
-                    <span>Skills: {enabledSkillCount}</span>
-                    <span>MCP: {mcpServerCount}</span>
-                  </div>
                   <button
                     type="button"
-                    className="primary-button"
-                    onClick={() => void handleSend()}
-                    disabled={
-                      !selectedAgentId ||
-                      (!draft.trim() && !chatAttachment) ||
-                      busy ||
-                      Boolean(mcpError)
+                    className="ghost-button danger-button"
+                    onClick={promptDeleteSelectedSession}
+                    disabled={!selectedSessionId || busy || deletePending}
+                    title={
+                      isOrchestratorAgent
+                        ? "Delete the selected orchestrator session"
+                        : isScheduleAgent
+                          ? "Delete the selected scheduled task"
+                          : "Delete the selected chat history"
                     }
                   >
-                    {busy ? "Sending..." : "Send"}
+                    {isOrchestratorAgent
+                      ? "Delete session"
+                      : isScheduleAgent
+                        ? "Delete schedule"
+                        : "Delete chat"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      setCommandPaletteOpen(true);
+                    }}
+                  >
+                    Open switcher
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button sidebar-toggle-button"
+                    aria-expanded={sidebarVisible}
+                    onClick={handleToggleSidebar}
+                  >
+                    {sidebarVisible ? "Hide list" : "Show list"}
+                    {!sidebarVisible && selectedAgentHasNotifications ? (
+                      <span
+                        className="sidebar-notification-dot"
+                        role="img"
+                        aria-label="Completed work waiting in chats"
+                      />
+                    ) : null}
                   </button>
                 </div>
+                <div className="shortcut-hint">
+                  {isOrchestratorAgent
+                    ? "Cmd/Ctrl+K switch • Alt+Shift+N new session"
+                    : isScheduleAgent
+                      ? "Cmd/Ctrl+K switch • Alt+Shift+N new schedule"
+                      : "Cmd/Ctrl+K switch • Cmd/Ctrl+Enter send"}
+                </div>
               </div>
-            </>
-          )}
+            </header>
+
+            {!isOrchestratorAgent && !isScheduleAgent ? (
+              <RuntimeControls
+                providers={providers}
+                models={models}
+                visibleModels={visibleModels}
+                skills={skills}
+                config={config}
+                mcpText={mcpText}
+                mcpError={mcpError}
+                onProviderChange={(provider) =>
+                  setConfig((current) =>
+                    normalizeConfigForModel({ ...current, provider }, models)
+                  )
+                }
+                onModelChange={(model) =>
+                  setConfig((current) =>
+                    normalizeConfigForModel({ ...current, model }, models)
+                  )
+                }
+                onReasoningEffortChange={(reasoningEffort) =>
+                  setConfig((current) =>
+                    normalizeConfigForModel(
+                      { ...current, reasoningEffort },
+                      models
+                    )
+                  )
+                }
+                onLmStudioEnableThinkingChange={(lmStudioEnableThinking) =>
+                  setConfig((current) => ({
+                    ...current,
+                    lmStudioEnableThinking,
+                  }))
+                }
+                onSkillToggle={handleToggleSkill}
+                onMcpTextChange={handleMcpTextChange}
+              />
+            ) : null}
+
+            {queue.length > 0 ? (
+              <section className="queue-banner" aria-label="Queued messages">
+                <strong>{queue.length} queued message(s)</strong>
+                <div className="queue-list">
+                  {queue.map((message) => (
+                    <button
+                      type="button"
+                      key={message.id}
+                      className="queued-item"
+                      onClick={() => void handleRetryQueuedMessage(message)}
+                    >
+                      <span className="queued-item-title">
+                        Retry {message.agentId}
+                      </span>
+                      <span className="queued-item-meta">
+                        {new Date(message.createdAt).toLocaleTimeString()}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {isOrchestratorAgent ? (
+              <OrchestratorPane
+                capabilities={orchestratorCapabilities}
+                session={selectedOrchestratorSession}
+                schedules={selectedOrchestratorSchedules}
+                models={visibleOrchestratorModels}
+                defaultCliProvider={
+                  orchestratorCapabilities?.defaultCliProvider ??
+                  defaultProvider
+                }
+                defaultModelId={config.model}
+                allSessions={Object.values(orchestratorSessionsById)}
+                projectPathSuggestions={orchestratorProjectPathSuggestions}
+                pending={busy}
+                error={error}
+                terminalOutputHeight={uiPreferences.orchestratorTerminalHeight}
+                onTerminalOutputHeightChange={(height) =>
+                  setUiPreferences((current) => ({
+                    ...current,
+                    orchestratorTerminalHeight:
+                      clampOrchestratorTerminalHeight(height),
+                  }))
+                }
+                onCreateSession={(request) =>
+                  void handleCreateOrchestratorSession(request)
+                }
+                onUpdateSession={(request) =>
+                  void handleUpdateOrchestratorSession(request)
+                }
+                onSelectSession={(sessionId) =>
+                  handleSelectSession(ORCHESTRATOR_AGENT_ID, sessionId)
+                }
+                onDeleteOlderDuplicates={
+                  promptDeleteOlderOrchestratorDuplicates
+                }
+                onDelegate={(request) =>
+                  void handleDelegateOrchestratorPrompt(request)
+                }
+                onSendInput={(input, submit) =>
+                  void handleSendOrchestratorInput(input, submit)
+                }
+                onCancelJob={() => void handleCancelOrchestratorJob()}
+                onRestartSession={promptRestartSelectedOrchestratorSession}
+                onRetryFailedJob={(jobId) =>
+                  void handleRetryOrchestratorJob(jobId)
+                }
+                onDeleteQueuedJob={promptDeleteQueuedJob}
+                onCreateSchedule={(request) =>
+                  void handleCreateOrchestratorSchedule(request)
+                }
+                onUpdateSchedule={(scheduleId, request) =>
+                  void handleUpdateOrchestratorSchedule(scheduleId, request)
+                }
+                onDeleteSchedule={(scheduleId, sessionId) =>
+                  void handleDeleteOrchestratorSchedule(scheduleId, sessionId)
+                }
+                onSessionUpdate={(session) => storeOrchestratorSession(session)}
+              />
+            ) : isScheduleAgent ? (
+              <SchedulePane
+                task={selectedScheduleTask}
+                thread={selectedScheduleThread}
+                chatAgents={agents.filter((agent) => agent.kind === "chat")}
+                orchestratorSessions={
+                  sessionsByAgent[ORCHESTRATOR_AGENT_ID] ?? []
+                }
+                orchestratorSession={selectedScheduledOrchestratorSession}
+                pending={busy}
+                error={error}
+                onCreateTask={(request) =>
+                  void handleCreateScheduledTask(request)
+                }
+                onUpdateTask={(scheduleId, request) =>
+                  void handleUpdateScheduledTask(scheduleId, request)
+                }
+                onDeleteTask={() => promptDeleteSelectedSession()}
+                onRunNow={(scheduleId) =>
+                  void handleRunScheduledTask(scheduleId)
+                }
+                onOpenTarget={(task) => {
+                  if (
+                    task.targetKind === "orchestrator" &&
+                    task.orchestratorSessionId
+                  ) {
+                    handleSelectSession(
+                      ORCHESTRATOR_AGENT_ID,
+                      task.orchestratorSessionId
+                    );
+                    return;
+                  }
+                  if (task.agentId && task.chatSessionId) {
+                    handleSelectSession(task.agentId, task.chatSessionId);
+                  }
+                }}
+              />
+            ) : (
+              <>
+                {selectedSessionId &&
+                !preferNewSession &&
+                !selectedThread &&
+                selectedSessionSummary ? (
+                  <section className="chat-empty-state">
+                    <div className="chat-empty-card">
+                      <h2>{selectedSessionSummary.title}</h2>
+                      <p>
+                        {sessionLoadPending &&
+                        sessionLoadTarget ===
+                          `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
+                          ? "Loading this chat without blocking the rest of the app."
+                          : "Open this chat on demand to avoid loading a large history during startup."}
+                      </p>
+                      <div className="panel-actions">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          onClick={() =>
+                            void openSession(
+                              selectedSessionSummary.agentId,
+                              selectedSessionSummary.sessionId
+                            )
+                          }
+                          disabled={sessionLoadPending}
+                        >
+                          {sessionLoadPending &&
+                          sessionLoadTarget ===
+                            `${selectedSessionSummary.agentId}:${selectedSessionSummary.sessionId}`
+                            ? "Loading..."
+                            : "Open chat"}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={handleNewSession}
+                        >
+                          New chat
+                        </button>
+                      </div>
+                      {error ? (
+                        <div className="error-row" role="alert">
+                          {error}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+                ) : (
+                  <ChatTimeline
+                    thread={selectedThread}
+                    pending={busy}
+                    pendingAssistantText={
+                      pendingAssistantSnapshot.assistantText
+                    }
+                    pendingThinkingText={pendingAssistantSnapshot.thinkingText}
+                    error={error}
+                  />
+                )}
+
+                <div className="composer-shell">
+                  <SingleAttachmentPicker
+                    file={chatAttachment}
+                    pending={busy}
+                    onChange={setChatAttachment}
+                  />
+                  <textarea
+                    ref={composerRef}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder={
+                      selectedAgentId
+                        ? "Send a message..."
+                        : "Choose an agent first..."
+                    }
+                    rows={4}
+                    aria-label="Message composer"
+                  />
+                  <div className="composer-footer">
+                    <div className="composer-meta">
+                      <span>
+                        Model: {selectedModel?.displayName ?? config.model}
+                      </span>
+                      {config.reasoningEffort ? (
+                        <span>
+                          Reasoning:{" "}
+                          {formatReasoningEffort(config.reasoningEffort)}
+                        </span>
+                      ) : null}
+                      <span>Skills: {enabledSkillCount}</span>
+                      <span>MCP: {mcpServerCount}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() => void handleSend()}
+                      disabled={
+                        !selectedAgentId ||
+                        (!draft.trim() && !chatAttachment) ||
+                        busy ||
+                        Boolean(mcpError)
+                      }
+                    >
+                      {busy ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </main>
       </div>
 
@@ -2880,6 +3118,21 @@ function buildTitleFromPrompt(prompt: string): string {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error";
+}
+
+function getThreadKey(agentId: string, sessionId: string): string {
+  return `${agentId}:${sessionId}`;
+}
+
+function didSessionSummaryChange(
+  previousSession: ChatSessionSummary,
+  nextSession: ChatSessionSummary
+): boolean {
+  return (
+    previousSession.lastTurnAt !== nextSession.lastTurnAt ||
+    previousSession.turnCount !== nextSession.turnCount ||
+    previousSession.completionStatus !== nextSession.completionStatus
+  );
 }
 
 function isOfflineError(error: unknown): boolean {

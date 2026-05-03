@@ -60,6 +60,8 @@ When delegated work finishes, the tmux pane now emits an explicit completion lin
 
 The session list still appears in the existing `SessionSidebar`, but the cards represent orchestrator sessions rather than saved chats. The capability banner reflects whether `tmux` plus at least one supported CLI backend is available, and the live output view resumes by tailing the persisted pane log.
 
+If the backing tmux session disappears after a server restart or crash, delegating the next task now recreates the shared tmux session and pane automatically, then surfaces a recovery notice in the session UI and tmux output.
+
 Destructive actions go through a confirmation modal. From the orchestrator workspace you can delete the whole session, start a brand-new tmux pane for the same saved session, or remove queued jobs that have not started yet.
 
 ## Memory analysis action

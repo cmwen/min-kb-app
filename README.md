@@ -114,7 +114,7 @@ The agent rail also includes a built-in `copilot-orchestrator` agent plus a buil
 - attach one file to a delegated job so the selected CLI can inspect it from disk
 - stream tmux output live over SSE
 - show red-dot unread completion badges in the agent/session UI when delegated work finishes in the background
-- cancel a stuck delegated job, restart the tmux pane for fresh work, delete queued jobs, and delete whole orchestrator sessions
+- retry failed delegated jobs, cancel a stuck delegated job, restart the tmux pane for fresh work, delete queued jobs, and delete whole orchestrator sessions
 - create daily, weekly, or monthly recurring orchestrator schedules tied to a session prompt
 - optionally email a schedule run to a recipient when the delegated job finishes
 - send raw terminal input back into the tmux pane with or without submitting `Enter`

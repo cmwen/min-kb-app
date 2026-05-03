@@ -461,6 +461,18 @@ app.post("/api/orchestrator/sessions/:sessionId/jobs", async (context) => {
   );
 });
 
+app.post(
+  "/api/orchestrator/sessions/:sessionId/jobs/:jobId/retry",
+  async (context) => {
+    return context.json(
+      await orchestrator.retryJob(
+        context.req.param("sessionId"),
+        context.req.param("jobId")
+      )
+    );
+  }
+);
+
 app.post("/api/orchestrator/sessions/:sessionId/input", async (context) => {
   const request = orchestratorTerminalInputSchema.parse(
     (await context.req.json()) satisfies OrchestratorTerminalInputRequest

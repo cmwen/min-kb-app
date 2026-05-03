@@ -1,9 +1,12 @@
 import type { ModelDescriptor } from "@min-kb-app/shared";
 import { describe, expect, it } from "vitest";
 import {
+  clampOrchestratorTerminalHeight,
   clampSidebarWidth,
   getVisibleModels,
+  MAX_ORCHESTRATOR_TERMINAL_HEIGHT,
   MAX_SIDEBAR_WIDTH,
+  MIN_ORCHESTRATOR_TERMINAL_HEIGHT,
   MIN_SIDEBAR_WIDTH,
   resolveTheme,
 } from "./ui-preferences";
@@ -28,6 +31,15 @@ describe("ui-preferences", () => {
   it("clamps the sidebar width to the supported range", () => {
     expect(clampSidebarWidth(MIN_SIDEBAR_WIDTH - 50)).toBe(MIN_SIDEBAR_WIDTH);
     expect(clampSidebarWidth(MAX_SIDEBAR_WIDTH + 50)).toBe(MAX_SIDEBAR_WIDTH);
+  });
+
+  it("clamps the orchestrator terminal height to the supported range", () => {
+    expect(clampOrchestratorTerminalHeight(120)).toBe(
+      MIN_ORCHESTRATOR_TERMINAL_HEIGHT
+    );
+    expect(clampOrchestratorTerminalHeight(960)).toBe(
+      MAX_ORCHESTRATOR_TERMINAL_HEIGHT
+    );
   });
 
   it("keeps the selected model visible even when hidden from the picker", () => {

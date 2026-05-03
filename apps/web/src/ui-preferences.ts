@@ -22,12 +22,16 @@ export interface UiPreferences {
   defaultChatModelId: string;
   sidebarWidth: number;
   sidebarCollapsed: boolean;
+  orchestratorTerminalHeight: number;
   completionNotifications: CompletionNotificationPreferences;
 }
 
-export const DEFAULT_SIDEBAR_WIDTH = 320;
+export const DEFAULT_SIDEBAR_WIDTH = 300;
 export const MIN_SIDEBAR_WIDTH = 260;
 export const MAX_SIDEBAR_WIDTH = 460;
+export const DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT = 300;
+export const MIN_ORCHESTRATOR_TERMINAL_HEIGHT = 180;
+export const MAX_ORCHESTRATOR_TERMINAL_HEIGHT = 720;
 
 export function createDefaultUiPreferences(): UiPreferences {
   return {
@@ -37,6 +41,7 @@ export function createDefaultUiPreferences(): UiPreferences {
     defaultChatModelId: DEFAULT_CHAT_MODEL,
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     sidebarCollapsed: false,
+    orchestratorTerminalHeight: DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT,
     completionNotifications: createDefaultCompletionNotificationPreferences(),
   };
 }
@@ -75,6 +80,10 @@ export function normalizeUiPreferences(
       typeof raw?.sidebarCollapsed === "boolean"
         ? raw.sidebarCollapsed
         : defaults.sidebarCollapsed,
+    orchestratorTerminalHeight:
+      typeof raw?.orchestratorTerminalHeight === "number"
+        ? clampOrchestratorTerminalHeight(raw.orchestratorTerminalHeight)
+        : defaults.orchestratorTerminalHeight,
     completionNotifications: normalizeCompletionNotificationPreferences(
       raw?.completionNotifications
     ),
@@ -85,6 +94,13 @@ export function clampSidebarWidth(width: number): number {
   return Math.min(
     MAX_SIDEBAR_WIDTH,
     Math.max(MIN_SIDEBAR_WIDTH, Math.round(width))
+  );
+}
+
+export function clampOrchestratorTerminalHeight(height: number): number {
+  return Math.min(
+    MAX_ORCHESTRATOR_TERMINAL_HEIGHT,
+    Math.max(MIN_ORCHESTRATOR_TERMINAL_HEIGHT, Math.round(height))
   );
 }
 

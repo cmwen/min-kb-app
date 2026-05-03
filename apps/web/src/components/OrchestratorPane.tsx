@@ -10,10 +10,25 @@ import type {
   OrchestratorSessionUpdateRequest,
 } from "@min-kb-app/shared";
 import * as RawAnsiModule from "ansi-to-react";
-import type { ReactNode } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_ROOT, api } from "../api";
+import {
+  getAdaptiveReconnectDelayMs,
+  readReconnectCostHints,
+} from "../mobile-reconnect";
 import { findMatchingOrchestratorSessions } from "../orchestrator-duplicates";
+import {
+  clampOrchestratorTerminalHeight,
+  DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT,
+  MAX_ORCHESTRATOR_TERMINAL_HEIGHT,
+  MIN_ORCHESTRATOR_TERMINAL_HEIGHT,
+} from "../ui-preferences";
 import {
   type OrchestratorScheduleDraft,
   OrchestratorScheduleModal,
@@ -39,6 +54,7 @@ interface OrchestratorPaneProps {
   onSendInput: (input: string, submit: boolean) => void;
   onCancelJob: () => void;
   onRestartSession: () => void;
+  onRetryFailedJob?: (jobId: string) => void;
   onDeleteQueuedJob: (jobId: string) => void;
   onCreateSchedule: (request: OrchestratorScheduleCreateRequest) => void;
   onUpdateSchedule: (
@@ -47,6 +63,8 @@ interface OrchestratorPaneProps {
   ) => void;
   onDeleteSchedule: (scheduleId: string, sessionId: string) => void;
   onSessionUpdate: (session: OrchestratorSession) => void;
+  terminalOutputHeight?: number;
+  onTerminalOutputHeightChange?: (height: number) => void;
 }
 
 const TERMINAL_HISTORY_PAGE_LINE_LIMIT = 2_000;
@@ -115,6 +133,12 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const sessionUpdateRef = useRef(props.onSessionUpdate);
   const streamOffsetRef = useRef(props.session?.logSize ?? 0);
   const reconnectTimeoutRef = useRef<number | undefined>(undefined);
+  const streamReconnectAttemptRef = useRef(0);
+  const pageVisibleRef = useRef(
+    typeof document === "undefined"
+      ? true
+      : document.visibilityState !== "hidden"
+  );
   const scrollBehaviorRef = useRef<"bottom" | "preserve">("bottom");
   const scrollSnapshotRef = useRef<{
     scrollTop: number;
@@ -397,6 +421,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
 
   useEffect(() => {
     streamOffsetRef.current = props.session?.logSize ?? 0;
+    streamReconnectAttemptRef.current = 0;
   }, [props.session?.sessionId]);
 
   useEffect(() => {
@@ -407,6 +432,37 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const reconnectNow = () => {
+      if (!props.session || streamState !== "closed") {
+        return;
+      }
+      if (reconnectTimeoutRef.current !== undefined) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
+      streamReconnectAttemptRef.current = 0;
+      setStreamReconnectToken((current) => current + 1);
+    };
+    const handleVisibilityChange = () => {
+      pageVisibleRef.current = document.visibilityState !== "hidden";
+      if (pageVisibleRef.current) {
+        reconnectNow();
+      }
+    };
+    const handleOnline = () => {
+      reconnectNow();
+    };
+
+    handleVisibilityChange();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [props.session, streamState]);
 
   useEffect(() => {
     if (!props.session) {
@@ -422,6 +478,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       `${API_ROOT}/api/orchestrator/sessions/${props.session.sessionId}/stream?offset=${streamOffsetRef.current}`
     );
     const handleOutput = (event: MessageEvent<string>) => {
+      streamReconnectAttemptRef.current = 0;
       const payload = JSON.parse(event.data) as {
         chunk: string;
         nextOffset: number;
@@ -433,12 +490,14 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       }
     };
     const handleHeartbeat = (event: MessageEvent<string>) => {
+      streamReconnectAttemptRef.current = 0;
       const payload = JSON.parse(event.data) as {
         offset: number;
       };
       streamOffsetRef.current = payload.offset;
     };
     const handleSession = (event: MessageEvent<string>) => {
+      streamReconnectAttemptRef.current = 0;
       const payload = JSON.parse(event.data) as OrchestratorSession;
       sessionUpdateRef.current(payload);
     };
@@ -448,10 +507,16 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
       if (reconnectTimeoutRef.current !== undefined) {
         window.clearTimeout(reconnectTimeoutRef.current);
       }
+      const delayMs = getAdaptiveReconnectDelayMs({
+        ...readReconnectCostHints(),
+        attempt: streamReconnectAttemptRef.current,
+        pageVisible: pageVisibleRef.current,
+      });
+      streamReconnectAttemptRef.current += 1;
       reconnectTimeoutRef.current = window.setTimeout(() => {
         reconnectTimeoutRef.current = undefined;
         setStreamReconnectToken((current) => current + 1);
-      }, 1_000);
+      }, delayMs);
     };
 
     setStreamState("live");
@@ -566,6 +631,9 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const settingsPanelId = props.session
     ? `${props.session.sessionId}-session-settings`
     : "orchestrator-session-settings";
+  const terminalOutputStyle = {
+    "--terminal-output-height": `${props.terminalOutputHeight ?? DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT}px`,
+  } as CSSProperties;
 
   function handleOpenCreateSchedule() {
     setEditingSchedule(undefined);
@@ -1192,6 +1260,16 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
                             ? "Prompt file"
                             : "Inline prompt"}
                         </span>
+                        {job.status === "failed" && canRetryJob(job) ? (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => props.onRetryFailedJob?.(job.jobId)}
+                            disabled={props.pending || !props.onRetryFailedJob}
+                          >
+                            Retry
+                          </button>
+                        ) : null}
                         {job.status === "queued" ? (
                           <button
                             type="button"
@@ -1401,6 +1479,11 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
           Starting a new tmux session closes the current pane. Previous tmux
           output will no longer be available here.
         </div>
+        {props.session.systemNotice ? (
+          <div className="terminal-toolbar-note field-note" role="status">
+            {props.session.systemNotice}
+          </div>
+        ) : null}
         {terminalHistoryError ? (
           <div className="terminal-toolbar-note">
             <div className="inline-error-banner" role="alert">
@@ -1408,10 +1491,26 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             </div>
           </div>
         ) : null}
-        <div className="terminal-output" ref={terminalRef}>
+        <div
+          className="terminal-output"
+          ref={terminalRef}
+          style={terminalOutputStyle}
+        >
           <Ansi linkify={false}>
             {terminalOutput || "[min-kb-app] Waiting for tmux output...\n"}
           </Ansi>
+        </div>
+        <div className="terminal-resize-footer">
+          <TerminalResizeHandle
+            height={
+              props.terminalOutputHeight ?? DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT
+            }
+            onHeightChange={props.onTerminalOutputHeightChange}
+          />
+          <span className="panel-caption">
+            Drag or use arrow keys to resize the tmux output and keep the
+            delegate controls in view.
+          </span>
         </div>
       </div>
 
@@ -1612,6 +1711,87 @@ function ButtonContent(props: {
   );
 }
 
+function TerminalResizeHandle(props: {
+  height: number;
+  onHeightChange?: (height: number) => void;
+}) {
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    const onHeightChange = props.onHeightChange;
+    if (!onHeightChange) {
+      return;
+    }
+
+    event.preventDefault();
+    const element = event.currentTarget;
+    const startY = event.clientY;
+    const startHeight = props.height;
+    element.setPointerCapture(event.pointerId);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      onHeightChange(
+        clampOrchestratorTerminalHeight(
+          startHeight + moveEvent.clientY - startY
+        )
+      );
+    };
+    const handlePointerFinish = (finishEvent: PointerEvent) => {
+      element.removeEventListener("pointermove", handlePointerMove);
+      element.removeEventListener("pointerup", handlePointerFinish);
+      element.removeEventListener("pointercancel", handlePointerFinish);
+      if (element.hasPointerCapture(finishEvent.pointerId)) {
+        element.releasePointerCapture(finishEvent.pointerId);
+      }
+    };
+
+    element.addEventListener("pointermove", handlePointerMove);
+    element.addEventListener("pointerup", handlePointerFinish);
+    element.addEventListener("pointercancel", handlePointerFinish);
+  }
+
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    const onHeightChange = props.onHeightChange;
+    if (!onHeightChange) {
+      return;
+    }
+
+    switch (event.key) {
+      case "ArrowUp":
+        event.preventDefault();
+        onHeightChange(clampOrchestratorTerminalHeight(props.height - 24));
+        break;
+      case "ArrowDown":
+        event.preventDefault();
+        onHeightChange(clampOrchestratorTerminalHeight(props.height + 24));
+        break;
+      case "Home":
+        event.preventDefault();
+        onHeightChange(MIN_ORCHESTRATOR_TERMINAL_HEIGHT);
+        break;
+      case "End":
+        event.preventDefault();
+        onHeightChange(MAX_ORCHESTRATOR_TERMINAL_HEIGHT);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="terminal-resize-handle"
+      aria-label="Resize tmux output"
+      title="Drag to resize. Use arrow keys to resize when focused. Double-click to reset."
+      disabled={!props.onHeightChange}
+      onDoubleClick={() =>
+        props.onHeightChange?.(DEFAULT_ORCHESTRATOR_TERMINAL_HEIGHT)
+      }
+      onPointerDown={handlePointerDown}
+      onKeyDown={handleKeyDown}
+    />
+  );
+}
+
 function QueueChevronIcon(props: { open: boolean }) {
   return (
     <svg
@@ -1692,6 +1872,14 @@ function formatTimestamp(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function canRetryJob(job: OrchestratorJob): boolean {
+  return (
+    typeof job.prompt === "string" ||
+    typeof job.promptPath === "string" ||
+    typeof job.attachment !== "undefined"
+  );
 }
 
 function humanizeDayOfWeek(day: OrchestratorSchedule["dayOfWeek"]): string {

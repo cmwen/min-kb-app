@@ -86,6 +86,7 @@ describe("orchestrator session persistence", () => {
     });
 
     const job = await createOrchestratorJob(workspace, created.sessionId, {
+      prompt: "Investigate the redirect loop",
       promptPreview: "Investigate the redirect loop",
       promptMode: "inline",
       submittedAt: "2026-03-20T12:01:00Z",
@@ -102,6 +103,7 @@ describe("orchestrator session persistence", () => {
 
     const session = await getOrchestratorSession(workspace, created.sessionId);
     expect(session.jobs).toHaveLength(1);
+    expect(session.jobs[0]?.prompt).toBe("Investigate the redirect loop");
     expect(session.jobs[0]?.status).toBe("completed");
     expect(session.jobs[0]?.exitCode).toBe(0);
   });

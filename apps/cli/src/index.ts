@@ -187,6 +187,9 @@ export function createProgram(): Command {
         console.log(
           `Queued orchestrator job ${delegatedJob.jobId} in session ${delegatedSession.sessionId}.`
         );
+        if (delegatedSession.systemNotice) {
+          console.log(delegatedSession.systemNotice);
+        }
 
         if (!options.wait) {
           return;

@@ -415,6 +415,7 @@ export const orchestratorJobSchema = z.object({
   jobId: z.string().min(1),
   sessionId: z.string().min(1),
   scheduleId: z.string().min(1).optional(),
+  prompt: z.string().optional(),
   promptPreview: z.string().min(1),
   promptMode: orchestratorPromptModeSchema,
   promptPath: z.string().min(1).optional(),
@@ -464,6 +465,7 @@ export const orchestratorSessionSchema =
     jobs: z.array(orchestratorJobSchema),
     terminalTail: z.string(),
     logSize: z.number().int().nonnegative(),
+    systemNotice: z.string().min(1).optional(),
   });
 export type OrchestratorSession = z.infer<typeof orchestratorSessionSchema>;
 

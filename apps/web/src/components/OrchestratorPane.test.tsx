@@ -875,132 +875,143 @@ describe("OrchestratorPane", () => {
   });
 
   it("reconnects the terminal stream from the latest offset after errors", async () => {
-    const instances: MockEventSource[] = [];
-    class MockEventSource {
-      readonly listeners = new Map<
-        string,
-        Array<(event: MessageEvent<string>) => void>
-      >();
-      readonly close = vi.fn();
-      onerror: (() => void) | null = null;
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      const instances: MockEventSource[] = [];
+      class MockEventSource {
+        readonly listeners = new Map<
+          string,
+          Array<(event: MessageEvent<string>) => void>
+        >();
+        readonly close = vi.fn();
+        onerror: (() => void) | null = null;
 
-      constructor(public readonly url: string) {
-        instances.push(this);
-      }
-
-      addEventListener = vi.fn(
-        (type: string, listener: (event: MessageEvent<string>) => void) => {
-          const listeners = this.listeners.get(type) ?? [];
-          listeners.push(listener);
-          this.listeners.set(type, listeners);
+        constructor(public readonly url: string) {
+          instances.push(this);
         }
+
+        addEventListener = vi.fn(
+          (type: string, listener: (event: MessageEvent<string>) => void) => {
+            const listeners = this.listeners.get(type) ?? [];
+            listeners.push(listener);
+            this.listeners.set(type, listeners);
+          }
+        );
+
+        removeEventListener = vi.fn(
+          (type: string, listener: (event: MessageEvent<string>) => void) => {
+            const listeners = this.listeners.get(type) ?? [];
+            this.listeners.set(
+              type,
+              listeners.filter((candidate) => candidate !== listener)
+            );
+          }
+        );
+
+        emit(type: string, payload: unknown) {
+          for (const listener of this.listeners.get(type) ?? []) {
+            listener({
+              data: JSON.stringify(payload),
+            } as MessageEvent<string>);
+          }
+        }
+      }
+      vi.stubGlobal(
+        "EventSource",
+        MockEventSource as unknown as typeof EventSource
       );
 
-      removeEventListener = vi.fn(
-        (type: string, listener: (event: MessageEvent<string>) => void) => {
-          const listeners = this.listeners.get(type) ?? [];
-          this.listeners.set(
-            type,
-            listeners.filter((candidate) => candidate !== listener)
-          );
-        }
-      );
-
-      emit(type: string, payload: unknown) {
-        for (const listener of this.listeners.get(type) ?? []) {
-          listener({
-            data: JSON.stringify(payload),
-          } as MessageEvent<string>);
-        }
-      }
-    }
-    vi.stubGlobal(
-      "EventSource",
-      MockEventSource as unknown as typeof EventSource
-    );
-
-    render(
-      <OrchestratorPane
-        capabilities={{
-          available: true,
-          defaultProjectPath: "/tmp/project",
-          recentProjectPaths: ["/tmp/another-project"],
-          tmuxInstalled: true,
-          copilotInstalled: true,
-          tmuxSessionName: "min-kb-app-orchestrator",
-        }}
-        session={{
-          sessionId: "2026-03-20-repo-support",
-          agentId: "copilot-orchestrator",
-          title: "Repo support",
-          startedAt: "2026-03-20T12:00:00Z",
-          updatedAt: "2026-03-20T12:05:00Z",
-          summary: "Handle runtime support work",
-          projectPath: "/tmp/project",
-          projectPurpose: "Handle runtime support work",
-          model: "gpt-5",
-          tmuxSessionName: "min-kb-app-orchestrator",
-          tmuxWindowName: "project-repo-support-0001",
-          tmuxPaneId: "%42",
-          status: "running",
-          activeJobId: "job-1",
-          lastJobId: "job-1",
-          availableCustomAgents: [],
-          selectedCustomAgentId: undefined,
-          sessionDirectory: "/tmp/session",
-          manifestPath:
-            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
-          jobs: [
+      render(
+        <OrchestratorPane
+          capabilities={{
+            available: true,
+            defaultProjectPath: "/tmp/project",
+            recentProjectPaths: ["/tmp/another-project"],
+            tmuxInstalled: true,
+            copilotInstalled: true,
+            tmuxSessionName: "min-kb-app-orchestrator",
+          }}
+          session={{
+            sessionId: "2026-03-20-repo-support",
+            agentId: "copilot-orchestrator",
+            title: "Repo support",
+            startedAt: "2026-03-20T12:00:00Z",
+            updatedAt: "2026-03-20T12:05:00Z",
+            summary: "Handle runtime support work",
+            projectPath: "/tmp/project",
+            projectPurpose: "Handle runtime support work",
+            model: "gpt-5",
+            tmuxSessionName: "min-kb-app-orchestrator",
+            tmuxWindowName: "project-repo-support-0001",
+            tmuxPaneId: "%42",
+            status: "running",
+            activeJobId: "job-1",
+            lastJobId: "job-1",
+            availableCustomAgents: [],
+            selectedCustomAgentId: undefined,
+            sessionDirectory: "/tmp/session",
+            manifestPath:
+              "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+            jobs: [
+              {
+                jobId: "job-1",
+                sessionId: "2026-03-20-repo-support",
+                promptPreview: "Stream output",
+                promptMode: "inline",
+                status: "running",
+                submittedAt: "2026-03-20T12:04:00Z",
+                startedAt: "2026-03-20T12:04:05Z",
+                jobDirectory: "/tmp/session/jobs/job-1",
+              },
+            ],
+            terminalTail: "",
+            logSize: 0,
+          }}
+          schedules={[]}
+          models={[
             {
-              jobId: "job-1",
-              sessionId: "2026-03-20-repo-support",
-              promptPreview: "Stream output",
-              promptMode: "inline",
-              status: "running",
-              submittedAt: "2026-03-20T12:04:00Z",
-              startedAt: "2026-03-20T12:04:05Z",
-              jobDirectory: "/tmp/session/jobs/job-1",
+              id: "gpt-5",
+              displayName: "GPT-5",
+              runtimeProvider: "copilot",
+              supportedReasoningEfforts: [],
             },
-          ],
-          terminalTail: "",
-          logSize: 0,
-        }}
-        schedules={[]}
-        models={[
-          {
-            id: "gpt-5",
-            displayName: "GPT-5",
-            runtimeProvider: "copilot",
-            supportedReasoningEfforts: [],
-          },
-        ]}
-        defaultModelId="gpt-5"
-        projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
-        pending={false}
-        onCreateSession={() => undefined}
-        onUpdateSession={() => undefined}
-        onDelegate={() => undefined}
-        onSendInput={() => undefined}
-        onCancelJob={() => undefined}
-        onRestartSession={() => undefined}
-        onDeleteQueuedJob={() => undefined}
-        onCreateSchedule={() => undefined}
-        onUpdateSchedule={() => undefined}
-        onDeleteSchedule={() => undefined}
-        onSessionUpdate={() => undefined}
-      />
-    );
+          ]}
+          defaultModelId="gpt-5"
+          projectPathSuggestions={["/tmp/project", "/tmp/another-project"]}
+          pending={false}
+          onCreateSession={() => undefined}
+          onUpdateSession={() => undefined}
+          onDelegate={() => undefined}
+          onSendInput={() => undefined}
+          onCancelJob={() => undefined}
+          onRestartSession={() => undefined}
+          onDeleteQueuedJob={() => undefined}
+          onCreateSchedule={() => undefined}
+          onUpdateSchedule={() => undefined}
+          onDeleteSchedule={() => undefined}
+          onSessionUpdate={() => undefined}
+        />
+      );
 
-    expect(instances[0]?.url).toContain("offset=0");
+      expect(instances[0]?.url).toContain("offset=0");
 
-    instances[0]?.emit("output", {
-      chunk: "hello",
-      nextOffset: 5,
-    });
-    instances[0]?.onerror?.();
+      instances[0]?.emit("output", {
+        chunk: "hello",
+        nextOffset: 5,
+      });
+      instances[0]?.onerror?.();
 
-    await waitFor(() => expect(instances).toHaveLength(2), { timeout: 2_000 });
-    expect(instances[1]?.url).toContain("offset=5");
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(instances).toHaveLength(2);
+      expect(instances[1]?.url).toContain("offset=5");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads older tmux output on demand without rewinding the live stream", async () => {
@@ -1341,6 +1352,188 @@ describe("OrchestratorPane", () => {
     expect(onDeleteQueuedJob).toHaveBeenCalledWith("job-queued");
   });
 
+  it("lets users resize the tmux output with the keyboard", async () => {
+    const user = userEvent.setup();
+    const onTerminalOutputHeightChange = vi.fn();
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          defaultCliProvider: "copilot",
+          cliProviders: [
+            {
+              id: "copilot",
+              displayName: "GitHub Copilot CLI",
+              description: "Uses the installed copilot CLI.",
+              capabilities: {
+                supportsCustomAgents: true,
+                supportsExecutionMode: true,
+              },
+            },
+          ],
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "session-resize",
+          agentId: "copilot-orchestrator",
+          title: "Resize tmux output",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Resize tmux output",
+          projectPath: "/tmp/project",
+          projectPurpose: "Resize tmux output",
+          cliProvider: "copilot",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-resize-0001",
+          tmuxPaneId: "%42",
+          status: "idle",
+          activeJobId: undefined,
+          lastJobId: undefined,
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          executionMode: "fleet",
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/session-resize/SESSION.md",
+          jobs: [],
+          terminalTail: "line 1",
+          logSize: 6,
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultCliProvider="copilot"
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        terminalOutputHeight={300}
+        onTerminalOutputHeightChange={onTerminalOutputHeightChange}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    const resizeHandle = screen.getByRole("button", {
+      name: "Resize tmux output",
+    });
+    resizeHandle.focus();
+    await user.keyboard("{ArrowUp}");
+
+    expect(onTerminalOutputHeightChange).toHaveBeenCalledWith(276);
+  });
+
+  it("routes failed task retries through the provided handler", async () => {
+    const user = userEvent.setup();
+    const onRetryFailedJob = vi.fn();
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "failed",
+          activeJobId: undefined,
+          lastJobId: "job-failed",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [
+            {
+              jobId: "job-failed",
+              sessionId: "2026-03-20-repo-support",
+              prompt: "Retry the failed task",
+              promptPreview: "Retry the failed task",
+              promptMode: "inline",
+              status: "failed",
+              submittedAt: "2026-03-20T12:04:00Z",
+              completedAt: "2026-03-20T12:05:00Z",
+              exitCode: 1,
+              jobDirectory: "/tmp/session/delegations/job-failed",
+            },
+          ],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onRetryFailedJob={onRetryFailedJob}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open task queue" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFailedJob).toHaveBeenCalledWith("job-failed");
+  });
+
   it("keeps one stream connection for the same session across rerenders", () => {
     const eventSourceUrls: string[] = [];
 
@@ -1551,6 +1744,86 @@ describe("OrchestratorPane", () => {
     expect(screen.queryByRole("button", { name: "Delete session" })).toBeNull();
     expect(
       screen.getByText(/Starting a new tmux session closes the current pane/i)
+    ).toBeTruthy();
+  });
+
+  it("shows an auto-recovery notice when a missing tmux session is recreated", () => {
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%99",
+          status: "running",
+          activeJobId: "job-2",
+          lastJobId: "job-2",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail:
+            "[min-kb-app] A new tmux session was created because the previous tmux session no longer existed.\n",
+          logSize: 97,
+          systemNotice:
+            "A new tmux session was created because the previous tmux session no longer existed.",
+        }}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        schedules={[]}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "A new tmux session was created because the previous tmux session no longer existed."
+      )
     ).toBeTruthy();
   });
 });

@@ -17,16 +17,19 @@ export function SessionSidebar(props: SessionSidebarProps) {
   const sessionLabel = props.sessionLabel ?? "session";
   const newSessionLabel = props.newSessionLabel ?? "New chat";
   const emptyMessage = props.emptyMessage ?? "No sessions yet for this agent.";
+  const showDescription = !props.agent || props.sessions.length === 0;
   return (
     <aside className="session-sidebar" aria-label="Chats">
       <div className="sidebar-header">
-        <div>
+        <div className="sidebar-heading">
           <div className="eyebrow">Agent</div>
           <h1>{props.agent?.title ?? "Choose an agent"}</h1>
-          <p>
-            {props.agent?.description ??
-              "Select an agent to load sessions and skills."}
-          </p>
+          {showDescription ? (
+            <p>
+              {props.agent?.description ??
+                "Select an agent to load sessions and skills."}
+            </p>
+          ) : null}
           <div className="session-count">
             {props.sessions.length} {sessionLabel}
             {props.sessions.length === 1 ? "" : "s"}

@@ -93,6 +93,7 @@ export interface CreateOrchestratorSessionInput {
 }
 
 export interface CreateOrchestratorJobInput {
+  prompt?: string;
   promptPreview: string;
   promptMode: OrchestratorJob["promptMode"];
   promptPath?: string;
@@ -289,6 +290,7 @@ export async function createOrchestratorJob(
     jobId,
     sessionId,
     scheduleId: input.scheduleId,
+    prompt: input.prompt ?? "",
     promptPreview: input.promptPreview,
     promptMode: input.promptMode,
     promptPath: input.promptPath,

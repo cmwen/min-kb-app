@@ -81,6 +81,7 @@ The built-in `copilot-orchestrator` agent requires `tmux` plus at least one supp
 - confirm `tmux` is installed and on `PATH`
 - confirm the selected CLI backend is installed and authenticated
 - open the orchestrator workspace and check the capability banner for missing dependencies
+- if the server restarted and the shared tmux session disappeared, delegating a new task now recreates the tmux session automatically and records a recovery notice in the pane output
 - if a pane gets stuck, use the restart action to recreate it without deleting the saved session
 - if a Gemini-backed job prints `You have exhausted your capacity on this model.`, that message comes from the Gemini CLI provider inside tmux rather than from tmux itself; switch to a model/account with available quota or retry later
 

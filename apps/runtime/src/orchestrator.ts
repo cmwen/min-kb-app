@@ -34,6 +34,7 @@ import {
 } from "@min-kb-app/min-kb-store";
 import {
   type AgentSummary,
+  type AttachmentUpload,
   type ChatRuntimeConfig,
   type ChatSession,
   type ChatSessionSummary,
@@ -54,6 +55,7 @@ import {
   type OrchestratorSessionUpdateRequest,
   type OrchestratorTerminalHistoryChunk,
   orchestratorCapabilitiesSchema,
+  type StoredAttachment,
 } from "@min-kb-app/shared";
 import {
   isRuntimeSmtpConfigured,
@@ -71,6 +73,8 @@ const CANCELLED_JOB_EXIT_CODE = -1;
 const ORCHESTRATOR_PROMPT_FILENAME = "prompt.txt";
 const ORCHESTRATOR_SCRIPT_FILENAME = "run.sh";
 export const DEFAULT_MEMORY_ANALYSIS_MODEL = "gpt-5-mini";
+const AUTO_RECOVERED_TMUX_NOTICE =
+  "A new tmux session was created because the previous tmux session no longer existed.";
 
 const COPILOT_CLI_PROVIDER = {
   id: "copilot",
@@ -103,6 +107,11 @@ interface ReconciledStatus {
   status: OrchestratorSession["status"];
   activeJobId?: string;
   lastJobId?: string;
+}
+
+interface QueueDelegationResult {
+  job: OrchestratorJob;
+  systemNotice?: string;
 }
 
 export class TmuxOrchestratorService {
@@ -413,10 +422,11 @@ export class TmuxOrchestratorService {
     schedule: OrchestratorSchedule
   ): Promise<OrchestratorJob> {
     const session = await this.getSession(schedule.sessionId);
-    return this.queueDelegation(session, schedule.prompt, {
+    const { job } = await this.queueDelegation(session, schedule.prompt, {
       customAgentId: schedule.customAgentId,
       scheduleId: schedule.scheduleId,
     });
+    return job;
   }
 
   async delegate(
@@ -440,11 +450,52 @@ export class TmuxOrchestratorService {
       session,
       typeof request === "string" ? undefined : request.customAgentId
     );
-    await this.queueDelegation(session, delegatedPrompt, {
+    const { systemNotice } = await this.queueDelegation(
+      session,
+      delegatedPrompt,
+      {
+        attachment,
+        customAgentId,
+      }
+    );
+    return this.loadSession(sessionId, systemNotice);
+  }
+
+  async retryJob(
+    sessionId: string,
+    jobId: string
+  ): Promise<OrchestratorSession> {
+    const session = await this.getSession(sessionId);
+    await this.assertCapabilities(
+      session.cliProvider ?? DEFAULT_ORCHESTRATOR_CLI_PROVIDER
+    );
+    const job = session.jobs.find((candidate) => candidate.jobId === jobId);
+    if (!job) {
+      throw new Error(`Orchestrator session ${sessionId} has no job ${jobId}.`);
+    }
+    if (job.status !== "failed") {
+      throw new Error(
+        `Only failed jobs can be retried. Received ${job.status}.`
+      );
+    }
+
+    const prompt = await this.resolveRetryPrompt(job);
+    const attachment = await this.readRetryAttachment(job.attachment);
+    if (!prompt.trim() && !attachment) {
+      throw new Error(
+        `Orchestrator job ${jobId} does not have enough persisted input to retry.`
+      );
+    }
+
+    const customAgentId = this.resolveSelectedCustomAgentId(
+      session,
+      job.customAgentId
+    );
+    const { systemNotice } = await this.queueDelegation(session, prompt, {
       attachment,
       customAgentId,
     });
-    return this.getSession(sessionId);
+    return this.loadSession(sessionId, systemNotice);
   }
 
   async sendInput(
@@ -856,7 +907,7 @@ export class TmuxOrchestratorService {
       customAgentId?: string;
       scheduleId?: string;
     } = {}
-  ): Promise<OrchestratorJob> {
+  ): Promise<QueueDelegationResult> {
     const attachment = options.attachment;
     const promptMode =
       attachment || shouldMaterializePrompt(delegatedPrompt)
@@ -864,6 +915,7 @@ export class TmuxOrchestratorService {
         : "inline";
     const premiumUsage = await this.estimatePremiumUsage(session.model);
     const job = await createOrchestratorJob(this.workspace, session.sessionId, {
+      prompt: delegatedPrompt,
       promptPreview:
         delegatedPrompt.trim().slice(0, 160) ||
         attachment?.name ||
@@ -879,24 +931,26 @@ export class TmuxOrchestratorService {
         selectedCustomAgentId: options.customAgentId,
       });
     }
-    const preparedJob = await this.prepareJobArtifacts(
-      {
+    const { session: executionSession, systemNotice } =
+      await this.ensureSessionReadyForExecution({
         ...session,
         selectedCustomAgentId: options.customAgentId,
-      },
+      });
+    const preparedJob = await this.prepareJobArtifacts(
+      executionSession,
       job,
       delegatedPrompt
     );
-    if (session.status === "running" && session.activeJobId) {
+    if (executionSession.status === "running" && executionSession.activeJobId) {
       await updateOrchestratorSession(this.workspace, session.sessionId, {
         lastJobId: preparedJob.jobId,
         status: "running",
       });
-      return preparedJob;
+      return { job: preparedJob, systemNotice };
     }
 
-    await this.startPreparedJob(session, preparedJob);
-    return preparedJob;
+    await this.startPreparedJob(executionSession, preparedJob);
+    return { job: preparedJob, systemNotice };
   }
 
   private async prepareJobArtifacts(
@@ -993,6 +1047,57 @@ export class TmuxOrchestratorService {
     });
   }
 
+  private async ensureSessionReadyForExecution(
+    session: OrchestratorSession
+  ): Promise<{
+    session: OrchestratorSession;
+    systemNotice?: string;
+  }> {
+    if (await this.tmuxPaneExists(session.tmuxPaneId)) {
+      return { session };
+    }
+
+    const nextPaneId = await this.createWindow({
+      projectPath: session.projectPath,
+      tmuxWindowName: session.tmuxWindowName,
+      startedAt: session.startedAt,
+      title: session.title,
+      sessionId: session.sessionId,
+    });
+    await this.writePaneNotice(nextPaneId, AUTO_RECOVERED_TMUX_NOTICE);
+
+    const runningJob =
+      session.jobs.find((job) => job.jobId === session.activeJobId) ??
+      session.jobs.find((job) => job.status === "running");
+    if (runningJob) {
+      await this.finalizeCancelledJob(
+        session.sessionId,
+        runningJob.jobId,
+        new Date().toISOString(),
+        {
+          tmuxPaneId: nextPaneId,
+          status: "idle",
+        }
+      );
+    } else {
+      await updateOrchestratorSession(this.workspace, session.sessionId, {
+        tmuxPaneId: nextPaneId,
+        activeJobId: undefined,
+        status: "idle",
+      });
+    }
+
+    return {
+      session: {
+        ...session,
+        tmuxPaneId: nextPaneId,
+        activeJobId: undefined,
+        status: "idle",
+      },
+      systemNotice: AUTO_RECOVERED_TMUX_NOTICE,
+    };
+  }
+
   private async estimatePremiumUsage(model: string) {
     if (!this.resolveModelDescriptor) {
       return undefined;
@@ -1009,6 +1114,37 @@ export class TmuxOrchestratorService {
       premiumRequestUnits: descriptor.premiumRequestMultiplier ?? 0,
       billingMultiplier: descriptor.premiumRequestMultiplier,
       recordedAt: new Date().toISOString(),
+    };
+  }
+
+  private async resolveRetryPrompt(
+    job: Pick<OrchestratorJob, "prompt" | "promptPath">
+  ) {
+    if (job.prompt?.trim().length) {
+      return job.prompt;
+    }
+    if (!job.promptPath) {
+      return "";
+    }
+    return fs.readFile(job.promptPath, "utf8");
+  }
+
+  private async readRetryAttachment(
+    attachment?: StoredAttachment
+  ): Promise<AttachmentUpload | undefined> {
+    if (!attachment) {
+      return undefined;
+    }
+    const filePath = path.join(
+      this.workspace.storeRoot,
+      attachment.relativePath
+    );
+    const content = await fs.readFile(filePath);
+    return {
+      name: attachment.name,
+      contentType: attachment.contentType,
+      size: attachment.size,
+      base64Data: content.toString("base64"),
     };
   }
 
@@ -1042,6 +1178,27 @@ export class TmuxOrchestratorService {
 
   private isEmailDeliveryConfigured(): boolean {
     return isRuntimeSmtpConfigured();
+  }
+
+  private async loadSession(
+    sessionId: string,
+    systemNotice?: string
+  ): Promise<OrchestratorSession> {
+    const session = await this.getSession(sessionId);
+    return systemNotice ? { ...session, systemNotice } : session;
+  }
+
+  private async writePaneNotice(
+    paneId: string,
+    message: string
+  ): Promise<void> {
+    await this.runTmux([
+      "send-keys",
+      "-t",
+      paneId,
+      `printf ${shellQuote(`[min-kb-app] ${message}\\n`)}`,
+      "Enter",
+    ]);
   }
 }
 
