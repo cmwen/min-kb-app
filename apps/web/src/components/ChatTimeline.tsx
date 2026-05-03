@@ -141,9 +141,13 @@ function renderAssistantSections(
       {hasThinkingText ? (
         <details className="assistant-thinking-panel">
           <summary>Thinking process</summary>
-          <MarkdownRenderer className="assistant-thinking-markdown">
-            {thinkingText ?? ""}
-          </MarkdownRenderer>
+          <div className="assistant-thinking-body">
+            <div className="assistant-thinking-body-inner">
+              <MarkdownRenderer className="assistant-thinking-markdown">
+                {thinkingText ?? ""}
+              </MarkdownRenderer>
+            </div>
+          </div>
         </details>
       ) : null}
     </div>

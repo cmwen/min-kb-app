@@ -13,6 +13,9 @@ const apiPathPrefix = `${trimTrailingSlash(apiUrl?.pathname ?? "")}/api/`;
 
 export default defineConfig({
   base,
+  build: {
+    target: "esnext",
+  },
   plugins: [
     react(),
     VitePWA({

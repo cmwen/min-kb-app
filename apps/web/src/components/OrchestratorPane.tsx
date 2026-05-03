@@ -1021,8 +1021,13 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             ) : null}
           </div>
         </div>
-        {settingsOpen ? (
-          <div id={settingsPanelId} className="orchestrator-settings-panel">
+        <div
+          id={settingsPanelId}
+          className="collapsible-region orchestrator-settings-panel-shell"
+          data-state={settingsOpen ? "open" : "closed"}
+          aria-hidden={!settingsOpen}
+        >
+          <div className="collapsible-region-inner orchestrator-settings-panel">
             <div className="eyebrow">Session settings</div>
             <div className="orchestrator-settings-grid">
               <label className="field-group">
@@ -1182,7 +1187,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               </button>
             </div>
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className="settings-card orchestrator-job-stack">
@@ -1225,8 +1230,13 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             </span>
           </div>
         </div>
-        {queueOpen ? (
-          <div id={queuePanelId} className="orchestrator-job-stack-panel">
+        <div
+          id={queuePanelId}
+          className="collapsible-region orchestrator-job-stack-panel-shell"
+          data-state={queueOpen ? "open" : "closed"}
+          aria-hidden={!queueOpen}
+        >
+          <div className="collapsible-region-inner orchestrator-job-stack-panel">
             {visibleJobs.length > 0 ? (
               <div className="orchestrator-job-list">
                 {visibleJobs.map((job) => (
@@ -1292,7 +1302,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               </div>
             )}
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className="settings-card orchestrator-schedule-stack">

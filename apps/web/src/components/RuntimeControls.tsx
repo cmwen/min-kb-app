@@ -6,7 +6,7 @@ import type {
   SkillDescriptor,
   SkillScope,
 } from "@min-kb-app/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   findModelDescriptor,
   findProviderDescriptor,
@@ -47,6 +47,10 @@ interface RuntimeControlsProps {
 export function RuntimeControls(props: RuntimeControlsProps) {
   const [openPanel, setOpenPanel] = useState<RuntimePanelId | undefined>();
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelIdPrefix = useId();
+  const modelPanelId = `${panelIdPrefix}-model`;
+  const skillsPanelId = `${panelIdPrefix}-skills`;
+  const mcpPanelId = `${panelIdPrefix}-mcp`;
   const selectedProvider = findProviderDescriptor(
     props.providers,
     props.config.provider
@@ -133,6 +137,7 @@ export function RuntimeControls(props: RuntimeControlsProps) {
             openPanel === "model" ? "toolbar-chip open" : "toolbar-chip"
           }
           aria-expanded={openPanel === "model"}
+          aria-controls={modelPanelId}
           aria-haspopup="dialog"
           onClick={() => togglePanel("model")}
         >
@@ -145,123 +150,121 @@ export function RuntimeControls(props: RuntimeControlsProps) {
               : ""}
           </small>
         </button>
-        {openPanel === "model" ? (
-          <div
-            className="runtime-panel"
-            role="dialog"
-            aria-label="Model picker"
-            data-panel="model"
-          >
-            <div className="settings-card">
+        <div
+          id={modelPanelId}
+          className="runtime-panel"
+          data-panel="model"
+          data-state={openPanel === "model" ? "open" : "closed"}
+          role="dialog"
+          aria-label="Model picker"
+          aria-hidden={openPanel !== "model"}
+        >
+          <div className="settings-card">
+            <label className="field-group">
+              <span>Provider</span>
+              <select
+                data-autofocus="true"
+                value={props.config.provider}
+                onChange={(event) => props.onProviderChange(event.target.value)}
+              >
+                {props.providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.displayName}
+                  </option>
+                ))}
+              </select>
+              {selectedProvider?.description ? (
+                <small className="field-note">
+                  {selectedProvider.description}
+                </small>
+              ) : null}
+            </label>
+            <label className="field-group">
+              <span>Model</span>
+              <select
+                value={props.config.model}
+                onChange={(event) => props.onModelChange(event.target.value)}
+              >
+                {modelOptions.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.displayName}
+                  </option>
+                ))}
+              </select>
+              <small className="field-note">
+                {modelOptions.length} visible option(s)
+                {selectedModel?.provider
+                  ? ` - served by ${selectedModel.provider}`
+                  : ""}
+              </small>
+            </label>
+            {providerCapabilities?.supportsReasoningEffort &&
+            selectedModel?.supportedReasoningEfforts.length ? (
               <label className="field-group">
-                <span>Provider</span>
+                <span>Reasoning effort</span>
                 <select
-                  data-autofocus="true"
-                  value={props.config.provider}
+                  value={props.config.reasoningEffort ?? ""}
                   onChange={(event) =>
-                    props.onProviderChange(event.target.value)
+                    props.onReasoningEffortChange(
+                      (event.target.value || undefined) as
+                        | ReasoningEffort
+                        | undefined
+                    )
                   }
                 >
-                  {props.providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.displayName}
-                    </option>
-                  ))}
-                </select>
-                {selectedProvider?.description ? (
-                  <small className="field-note">
-                    {selectedProvider.description}
-                  </small>
-                ) : null}
-              </label>
-              <label className="field-group">
-                <span>Model</span>
-                <select
-                  value={props.config.model}
-                  onChange={(event) => props.onModelChange(event.target.value)}
-                >
-                  {modelOptions.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.displayName}
-                    </option>
-                  ))}
+                  <option value="">
+                    Model default
+                    {selectedModel.defaultReasoningEffort
+                      ? ` (${formatReasoningEffort(selectedModel.defaultReasoningEffort)})`
+                      : ""}
+                  </option>
+                  {selectedModel.supportedReasoningEfforts.map(
+                    (reasoningEffort) => (
+                      <option key={reasoningEffort} value={reasoningEffort}>
+                        {formatReasoningEffort(reasoningEffort)}
+                      </option>
+                    )
+                  )}
                 </select>
                 <small className="field-note">
-                  {modelOptions.length} visible option(s)
-                  {selectedModel?.provider
-                    ? ` - served by ${selectedModel.provider}`
-                    : ""}
+                  Only shown when the selected model exposes reasoning controls.
                 </small>
               </label>
-              {providerCapabilities?.supportsReasoningEffort &&
-              selectedModel?.supportedReasoningEfforts.length ? (
-                <label className="field-group">
-                  <span>Reasoning effort</span>
-                  <select
-                    value={props.config.reasoningEffort ?? ""}
-                    onChange={(event) =>
-                      props.onReasoningEffortChange(
-                        (event.target.value || undefined) as
-                          | ReasoningEffort
-                          | undefined
-                      )
-                    }
-                  >
-                    <option value="">
-                      Model default
-                      {selectedModel.defaultReasoningEffort
-                        ? ` (${formatReasoningEffort(selectedModel.defaultReasoningEffort)})`
-                        : ""}
-                    </option>
-                    {selectedModel.supportedReasoningEfforts.map(
-                      (reasoningEffort) => (
-                        <option key={reasoningEffort} value={reasoningEffort}>
-                          {formatReasoningEffort(reasoningEffort)}
-                        </option>
-                      )
-                    )}
-                  </select>
-                  <small className="field-note">
-                    Only shown when the selected model exposes reasoning
-                    controls.
-                  </small>
-                </label>
-              ) : null}
-              {props.config.provider === "lmstudio" ? (
-                <label className="field-group">
-                  <span>Thinking mode</span>
-                  <select
-                    value={
-                      props.config.lmStudioEnableThinking === undefined
-                        ? ""
-                        : props.config.lmStudioEnableThinking
-                          ? "enabled"
-                          : "disabled"
-                    }
-                    onChange={(event) =>
-                      props.onLmStudioEnableThinkingChange(
-                        event.target.value === ""
-                          ? undefined
-                          : event.target.value === "enabled"
-                      )
-                    }
-                  >
-                    <option value="">Model default</option>
-                    <option value="enabled">Enabled</option>
-                    <option value="disabled">
-                      Quick response (thinking off)
-                    </option>
-                  </select>
-                  <small className="field-note">
-                    Sends LM Studio&apos;s custom <code>enable_thinking</code>{" "}
-                    flag. Turning it off can speed up Gemma 4 replies and leave
-                    more room for the visible answer.
-                  </small>
-                </label>
-              ) : null}
-            </div>
+            ) : null}
+            {props.config.provider === "lmstudio" ? (
+              <label className="field-group">
+                <span>Thinking mode</span>
+                <select
+                  value={
+                    props.config.lmStudioEnableThinking === undefined
+                      ? ""
+                      : props.config.lmStudioEnableThinking
+                        ? "enabled"
+                        : "disabled"
+                  }
+                  onChange={(event) =>
+                    props.onLmStudioEnableThinkingChange(
+                      event.target.value === ""
+                        ? undefined
+                        : event.target.value === "enabled"
+                    )
+                  }
+                >
+                  <option value="">Model default</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">
+                    Quick response (thinking off)
+                  </option>
+                </select>
+                <small className="field-note">
+                  Sends LM Studio&apos;s custom <code>enable_thinking</code>{" "}
+                  flag. Turning it off can speed up Gemma 4 replies and leave
+                  more room for the visible answer.
+                </small>
+              </label>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className="runtime-control">
@@ -271,6 +274,7 @@ export function RuntimeControls(props: RuntimeControlsProps) {
             openPanel === "skills" ? "toolbar-chip open" : "toolbar-chip"
           }
           aria-expanded={openPanel === "skills"}
+          aria-controls={skillsPanelId}
           aria-haspopup="dialog"
           onClick={() => togglePanel("skills")}
         >
@@ -282,73 +286,72 @@ export function RuntimeControls(props: RuntimeControlsProps) {
               : "Unsupported"}
           </small>
         </button>
-        {openPanel === "skills" ? (
-          <div
-            className="runtime-panel skills-panel"
-            role="dialog"
-            aria-label="Skill toggles"
-            data-panel="skills"
-          >
-            <div className="settings-card">
-              {!providerCapabilities?.supportsSkills ? (
-                <div className="empty-panel compact">
-                  {selectedProvider?.displayName ?? "This provider"} does not
-                  expose Copilot skills in this runtime.
-                </div>
-              ) : props.skills.length === 0 ? (
-                <div className="empty-panel compact">
-                  No skills discovered for this agent.
-                </div>
-              ) : (
-                <>
-                  {props.config.provider === "lmstudio" ? (
-                    <div className="field-note">
-                      Enabled skills are injected into the LM Studio prompt as
-                      instruction context. MCP tool execution still requires the
-                      GitHub Copilot runtime.
+        <div
+          id={skillsPanelId}
+          className="runtime-panel skills-panel"
+          role="dialog"
+          aria-label="Skill toggles"
+          data-panel="skills"
+          data-state={openPanel === "skills" ? "open" : "closed"}
+          aria-hidden={openPanel !== "skills"}
+        >
+          <div className="settings-card">
+            {!providerCapabilities?.supportsSkills ? (
+              <div className="empty-panel compact">
+                {selectedProvider?.displayName ?? "This provider"} does not
+                expose Copilot skills in this runtime.
+              </div>
+            ) : props.skills.length === 0 ? (
+              <div className="empty-panel compact">
+                No skills discovered for this agent.
+              </div>
+            ) : (
+              <>
+                {props.config.provider === "lmstudio" ? (
+                  <div className="field-note">
+                    Enabled skills are injected into the LM Studio prompt as
+                    instruction context. MCP tool execution still requires the
+                    GitHub Copilot runtime.
+                  </div>
+                ) : null}
+                {groupedSkills.map((group) => (
+                  <section key={group.scope} className="skill-group">
+                    <div className="skill-group-header">
+                      <div>
+                        <strong>{group.label}</strong>
+                        <div className="scope-caption">{group.scope}</div>
+                      </div>
+                      <span className="scope-chip">{group.skills.length}</span>
                     </div>
-                  ) : null}
-                  {groupedSkills.map((group) => (
-                    <section key={group.scope} className="skill-group">
-                      <div className="skill-group-header">
-                        <div>
-                          <strong>{group.label}</strong>
-                          <div className="scope-caption">{group.scope}</div>
-                        </div>
-                        <span className="scope-chip">
-                          {group.skills.length}
-                        </span>
-                      </div>
-                      <div className="skill-list">
-                        {group.skills.map((skill) => {
-                          const enabled = !props.config.disabledSkills.includes(
-                            skill.name
-                          );
-                          return (
-                            <label
-                              key={`${skill.scope}:${skill.name}`}
-                              className="checkbox-row"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={enabled}
-                                onChange={() => props.onSkillToggle(skill.name)}
-                              />
-                              <div>
-                                <strong>{skill.name}</strong>
-                                <span>{skill.description}</span>
-                              </div>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ))}
-                </>
-              )}
-            </div>
+                    <div className="skill-list">
+                      {group.skills.map((skill) => {
+                        const enabled = !props.config.disabledSkills.includes(
+                          skill.name
+                        );
+                        return (
+                          <label
+                            key={`${skill.scope}:${skill.name}`}
+                            className="checkbox-row"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={() => props.onSkillToggle(skill.name)}
+                            />
+                            <div>
+                              <strong>{skill.name}</strong>
+                              <span>{skill.description}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </>
+            )}
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className="runtime-control">
@@ -356,6 +359,7 @@ export function RuntimeControls(props: RuntimeControlsProps) {
           type="button"
           className={openPanel === "mcp" ? "toolbar-chip open" : "toolbar-chip"}
           aria-expanded={openPanel === "mcp"}
+          aria-controls={mcpPanelId}
           aria-haspopup="dialog"
           onClick={() => togglePanel("mcp")}
         >
@@ -369,43 +373,44 @@ export function RuntimeControls(props: RuntimeControlsProps) {
                 : "Ready"}
           </small>
         </button>
-        {openPanel === "mcp" ? (
-          <div
-            className="runtime-panel mcp-panel"
-            role="dialog"
-            aria-label="MCP configuration"
-            data-panel="mcp"
-          >
-            <div className="settings-card">
-              {!providerCapabilities?.supportsMcpServers ? (
-                <div className="empty-panel compact">
-                  {selectedProvider?.displayName ?? "This provider"} does not
-                  support MCP server wiring in this runtime.
-                </div>
-              ) : (
-                <label className="field-group grow">
-                  <span>MCP JSON</span>
-                  <textarea
-                    data-autofocus="true"
-                    value={props.mcpText}
-                    onChange={(event) =>
-                      props.onMcpTextChange(event.target.value)
-                    }
-                    spellCheck={false}
-                    rows={12}
-                  />
-                  {props.mcpError ? (
-                    <small className="error-text">{props.mcpError}</small>
-                  ) : (
-                    <small className="field-note">
-                      Invalid JSON blocks sending until it is fixed.
-                    </small>
-                  )}
-                </label>
-              )}
-            </div>
+        <div
+          id={mcpPanelId}
+          className="runtime-panel mcp-panel"
+          role="dialog"
+          aria-label="MCP configuration"
+          data-panel="mcp"
+          data-state={openPanel === "mcp" ? "open" : "closed"}
+          aria-hidden={openPanel !== "mcp"}
+        >
+          <div className="settings-card">
+            {!providerCapabilities?.supportsMcpServers ? (
+              <div className="empty-panel compact">
+                {selectedProvider?.displayName ?? "This provider"} does not
+                support MCP server wiring in this runtime.
+              </div>
+            ) : (
+              <label className="field-group grow">
+                <span>MCP JSON</span>
+                <textarea
+                  data-autofocus="true"
+                  value={props.mcpText}
+                  onChange={(event) =>
+                    props.onMcpTextChange(event.target.value)
+                  }
+                  spellCheck={false}
+                  rows={12}
+                />
+                {props.mcpError ? (
+                  <small className="error-text">{props.mcpError}</small>
+                ) : (
+                  <small className="field-note">
+                    Invalid JSON blocks sending until it is fixed.
+                  </small>
+                )}
+              </label>
+            )}
           </div>
-        ) : null}
+        </div>
       </div>
     </section>
   );

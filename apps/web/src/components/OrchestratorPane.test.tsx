@@ -316,9 +316,17 @@ describe("OrchestratorPane", () => {
       />
     );
 
-    expect(screen.queryByLabelText("Project name")).toBeNull();
+    const settingsToggle = screen.getByRole("button", {
+      name: /session settings/i,
+    });
+    const settingsPanelId = settingsToggle.getAttribute("aria-controls");
+    expect(settingsPanelId).toBeTruthy();
+    const settingsPanel = settingsPanelId
+      ? document.getElementById(settingsPanelId)
+      : undefined;
+    expect(settingsPanel?.getAttribute("aria-hidden")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: /session settings/i }));
+    await user.click(settingsToggle);
     await user.clear(screen.getByLabelText("Project name"));
     await user.type(screen.getByLabelText("Project name"), "Payments platform");
     await user.selectOptions(
@@ -1242,24 +1250,27 @@ describe("OrchestratorPane", () => {
     );
 
     expect(screen.getByText("2 queued tasks")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Open task queue" })
-    ).toBeTruthy();
+    const queueToggle = screen.getByRole("button", { name: "Open task queue" });
+    expect(queueToggle).toBeTruthy();
     expect(
       screen.getByText("Current run plus any queued follow-up work")
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Queue next prompt" })
     ).toBeTruthy();
-    expect(screen.queryByText("Investigate the stuck deploy")).toBeNull();
-    expect(screen.queryByText("Update the rollout checklist")).toBeNull();
-    expect(screen.queryByText("Draft the release note update")).toBeNull();
+    const queuePanelId = queueToggle.getAttribute("aria-controls");
+    expect(queuePanelId).toBeTruthy();
+    const queuePanel = queuePanelId
+      ? document.getElementById(queuePanelId)
+      : undefined;
+    expect(queuePanel?.getAttribute("aria-hidden")).toBe("true");
 
-    await user.click(screen.getByRole("button", { name: "Open task queue" }));
+    await user.click(queueToggle);
 
     expect(
       screen.getByRole("button", { name: "Hide task queue" })
     ).toBeTruthy();
+    expect(queuePanel?.getAttribute("aria-hidden")).toBe("false");
     expect(screen.getByText("Investigate the stuck deploy")).toBeTruthy();
     expect(screen.getByText("Update the rollout checklist")).toBeTruthy();
     expect(screen.getByText("Draft the release note update")).toBeTruthy();

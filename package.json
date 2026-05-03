@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/cmwen/min-kb-app/issues"
   },
-  "packageManager": "pnpm@10.15.1",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "build": "pnpm build:packages && pnpm -r build",
     "build:packages": "pnpm --filter @min-kb-app/shared build && pnpm --filter @min-kb-app/min-kb-store build && pnpm --filter @min-kb-app/copilot-runtime build",
@@ -31,7 +31,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "latest",
     "concurrently": "latest",
-    "jsdom": "^29.0.1",
+    "jsdom": "^29.1.1",
     "tsup": "latest",
     "tsx": "latest",
     "typescript": "latest",

@@ -2248,51 +2248,52 @@ export default function App() {
             onClick={() => setMobileSidebarOpen(false)}
           />
         ) : null}
-        {sidebarVisible ? (
-          <>
-            <div
-              className="session-sidebar-shell"
-              style={
-                {
-                  "--sidebar-width": `${uiPreferences.sidebarWidth}px`,
-                } as CSSProperties
+        <div
+          className="workspace-sidebar"
+          data-state={sidebarVisible ? "open" : "closed"}
+          style={
+            {
+              "--sidebar-width": `${uiPreferences.sidebarWidth}px`,
+            } as CSSProperties
+          }
+        >
+          <div className="session-sidebar-shell" aria-hidden={!sidebarVisible}>
+            <SessionSidebar
+              agent={selectedAgent}
+              sessions={sessions}
+              notificationSessionIds={notificationSessionIds}
+              selectedSessionId={selectedSessionId}
+              sessionLabel={
+                isOrchestratorAgent
+                  ? "session"
+                  : isScheduleAgent
+                    ? "schedule"
+                    : "chat"
               }
-            >
-              <SessionSidebar
-                agent={selectedAgent}
-                sessions={sessions}
-                notificationSessionIds={notificationSessionIds}
-                selectedSessionId={selectedSessionId}
-                sessionLabel={
-                  isOrchestratorAgent
-                    ? "session"
-                    : isScheduleAgent
-                      ? "schedule"
-                      : "chat"
+              newSessionLabel={
+                isOrchestratorAgent
+                  ? "New session"
+                  : isScheduleAgent
+                    ? "New schedule"
+                    : "New chat"
+              }
+              emptyMessage={
+                isOrchestratorAgent
+                  ? "No orchestrator sessions yet."
+                  : isScheduleAgent
+                    ? "No scheduled tasks yet."
+                    : "No sessions yet for this agent."
+              }
+              onSelect={(sessionId) => {
+                if (!selectedAgentId) {
+                  return;
                 }
-                newSessionLabel={
-                  isOrchestratorAgent
-                    ? "New session"
-                    : isScheduleAgent
-                      ? "New schedule"
-                      : "New chat"
-                }
-                emptyMessage={
-                  isOrchestratorAgent
-                    ? "No orchestrator sessions yet."
-                    : isScheduleAgent
-                      ? "No scheduled tasks yet."
-                      : "No sessions yet for this agent."
-                }
-                onSelect={(sessionId) => {
-                  if (!selectedAgentId) {
-                    return;
-                  }
-                  handleSelectSession(selectedAgentId, sessionId);
-                }}
-                onNewSession={handleNewSession}
-              />
-            </div>
+                handleSelectSession(selectedAgentId, sessionId);
+              }}
+              onNewSession={handleNewSession}
+            />
+          </div>
+          <div className="sidebar-resize-shell" aria-hidden={!sidebarVisible}>
             <SidebarResizeHandle
               width={uiPreferences.sidebarWidth}
               onWidthChange={(width) =>
@@ -2303,8 +2304,8 @@ export default function App() {
                 }))
               }
             />
-          </>
-        ) : null}
+          </div>
+        </div>
 
         <main className="chat-pane" aria-busy={busy || analyzingMemory}>
           <div
