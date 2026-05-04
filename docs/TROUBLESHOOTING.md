@@ -16,6 +16,8 @@ curl http://localhost:8787/api/health
 
 If the runtime cannot resolve your store root, set `MIN_KB_STORE_ROOT` explicitly before starting it.
 
+If you start both services together with `pnpm dev`, the root dev script now waits for `GET /api/health` before launching Vite. That avoids the transient `/api/.../stream` proxy `ECONNREFUSED` noise that can happen when the browser restores an orchestrator session before the runtime has finished binding to port `8787`.
+
 ## The model list looks incomplete
 
 The runtime exposes a provider-aware model catalog. For GitHub Copilot it first asks the Copilot SDK for the current model catalog. If that lookup fails, the app falls back to a bundled catalog so the selector is still usable.

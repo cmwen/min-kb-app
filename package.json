@@ -19,10 +19,11 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "vitest run",
-    "dev": "pnpm build:packages && concurrently -k -n runtime,web \"pnpm dev:runtime\" \"pnpm dev:web\"",
+    "dev": "pnpm build:packages && concurrently -k -n runtime,web \"pnpm dev:runtime\" \"pnpm wait:runtime && pnpm dev:web\"",
     "dev:runtime": "pnpm --filter @min-kb-app/runtime dev",
     "dev:web": "pnpm --filter @min-kb-app/web dev",
     "dev:cli": "pnpm --filter @min-kb-app/cli dev",
+    "wait:runtime": "node ./scripts/wait-for-runtime.mjs",
     "prepare:github-packages": "node ./scripts/prepare-github-packages.mjs"
   },
   "devDependencies": {
