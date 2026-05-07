@@ -1033,23 +1033,45 @@ describe("OrchestratorPane", () => {
     const fullLog = `${logLines.join("\n")}\n`;
     const beforeOffset =
       Buffer.byteLength(fullLog) - Buffer.byteLength(recentOutput);
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          chunk: olderOutput,
-          startOffset: 0,
-          endOffset: beforeOffset,
-          hasMoreBefore: false,
-          lineCount: 500,
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        }
-      )
-    );
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/changes")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              state: "clean",
+              projectPath: "/tmp/project",
+              repositoryRoot: "/tmp/project",
+              files: [],
+              message: "No uncommitted changes in this project.",
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            }
+          )
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            chunk: olderOutput,
+            startOffset: 0,
+            endOffset: beforeOffset,
+            hasMoreBefore: false,
+            lineCount: 500,
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          }
+        )
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const eventSourceUrls: string[] = [];
@@ -1756,6 +1778,340 @@ describe("OrchestratorPane", () => {
     expect(
       screen.getByText(/Starting a new tmux session closes the current pane/i)
     ).toBeTruthy();
+  });
+
+  it("shows local changes in a panel and renders a selected diff in a modal", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/changes")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              state: "dirty",
+              projectPath: "/tmp/project",
+              repositoryRoot: "/tmp/project",
+              files: [
+                {
+                  path: "apps/web/src/OrchestratorPane.tsx",
+                  statusCode: " M",
+                  stagedStatus: undefined,
+                  unstagedStatus: "modified",
+                  displayStatus: "Modified unstaged",
+                  lineStats: {
+                    added: 12,
+                    removed: 4,
+                    isBinary: false,
+                  },
+                },
+                {
+                  path: "notes.md",
+                  statusCode: "??",
+                  stagedStatus: undefined,
+                  unstagedStatus: "untracked",
+                  displayStatus: "Untracked",
+                  lineStats: {
+                    added: 3,
+                    removed: 0,
+                    isBinary: false,
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            }
+          )
+        );
+      }
+      if (
+        url.includes(
+          "/changes/diff?path=apps%2Fweb%2Fsrc%2FOrchestratorPane.tsx"
+        )
+      ) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              state: "ready",
+              projectPath: "/tmp/project",
+              repositoryRoot: "/tmp/project",
+              path: "apps/web/src/OrchestratorPane.tsx",
+              diff: [
+                "diff --git a/apps/web/src/OrchestratorPane.tsx b/apps/web/src/OrchestratorPane.tsx",
+                "@@ -1,3 +1,4 @@",
+                ' import type { ModelDescriptor } from "@min-kb-app/shared";',
+                '+import { api } from "../api";',
+                "",
+              ].join("\n"),
+              structured: {
+                oldPath: "apps/web/src/OrchestratorPane.tsx",
+                newPath: "apps/web/src/OrchestratorPane.tsx",
+                headerLines: [
+                  "diff --git a/apps/web/src/OrchestratorPane.tsx b/apps/web/src/OrchestratorPane.tsx",
+                  "--- a/apps/web/src/OrchestratorPane.tsx",
+                  "+++ b/apps/web/src/OrchestratorPane.tsx",
+                ],
+                hunks: [
+                  {
+                    header: "@@ -1,3 +1,4 @@",
+                    lines: [
+                      {
+                        kind: "context",
+                        content:
+                          'import type { ModelDescriptor } from "@min-kb-app/shared";',
+                        oldLineNumber: 1,
+                        newLineNumber: 1,
+                      },
+                      {
+                        kind: "add",
+                        content: 'import { api } from "../api";',
+                        newLineNumber: 2,
+                      },
+                    ],
+                  },
+                ],
+                isBinary: false,
+                hasText: true,
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            }
+          )
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "running",
+          activeJobId: "job-1",
+          lastJobId: "job-1",
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        schedules={[]}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /local changes/i })
+      ).toBeTruthy()
+    );
+    expect(screen.getByRole("button", { name: /2 changed/i })).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /local changes/i,
+      })
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: /apps\/web\/src\/OrchestratorPane\.tsx/i,
+        })
+      ).toBeTruthy()
+    );
+    expect(screen.getByText("+12 / -4")).toBeTruthy();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /apps\/web\/src\/OrchestratorPane\.tsx/i,
+      })
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", {
+          name: "apps/web/src/OrchestratorPane.tsx",
+        })
+      ).toBeTruthy()
+    );
+    expect(screen.getByText("@@ -1,3 +1,4 @@")).toBeTruthy();
+    expect(screen.getByText('import { api } from "../api";')).toBeTruthy();
+    expect(
+      screen.queryByText(/diff --git a\/apps\/web\/src\/OrchestratorPane\.tsx/i)
+    ).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/orchestrator/sessions/2026-03-20-repo-support/changes",
+      undefined
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/orchestrator/sessions/2026-03-20-repo-support/changes/diff?path=apps%2Fweb%2Fsrc%2FOrchestratorPane.tsx",
+      undefined
+    );
+  });
+
+  it("shows the empty git-state message for non-repository session paths", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          state: "non-git",
+          projectPath: "/tmp/project",
+          files: [],
+          message: "This project path is not inside a git repository.",
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    class MockEventSource {
+      addEventListener = vi.fn();
+      removeEventListener = vi.fn();
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(
+      <OrchestratorPane
+        capabilities={{
+          available: true,
+          defaultProjectPath: "/tmp/project",
+          recentProjectPaths: [],
+          tmuxInstalled: true,
+          copilotInstalled: true,
+          tmuxSessionName: "min-kb-app-orchestrator",
+        }}
+        session={{
+          sessionId: "2026-03-20-repo-support",
+          agentId: "copilot-orchestrator",
+          title: "Repo support",
+          startedAt: "2026-03-20T12:00:00Z",
+          updatedAt: "2026-03-20T12:05:00Z",
+          summary: "Handle runtime support work",
+          projectPath: "/tmp/project",
+          projectPurpose: "Handle runtime support work",
+          model: "gpt-5",
+          tmuxSessionName: "min-kb-app-orchestrator",
+          tmuxWindowName: "project-repo-support-0001",
+          tmuxPaneId: "%42",
+          status: "idle",
+          activeJobId: undefined,
+          lastJobId: undefined,
+          availableCustomAgents: [],
+          selectedCustomAgentId: undefined,
+          sessionDirectory: "/tmp/session",
+          manifestPath:
+            "agents/copilot-orchestrator/history/2026-03/2026-03-20-repo-support/SESSION.md",
+          jobs: [],
+          terminalTail: "",
+          logSize: 0,
+        }}
+        schedules={[]}
+        models={[
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            runtimeProvider: "copilot",
+            supportedReasoningEfforts: [],
+          },
+        ]}
+        defaultModelId="gpt-5"
+        projectPathSuggestions={["/tmp/project"]}
+        pending={false}
+        onCreateSession={() => undefined}
+        onUpdateSession={() => undefined}
+        onDelegate={() => undefined}
+        onSendInput={() => undefined}
+        onCancelJob={() => undefined}
+        onRestartSession={() => undefined}
+        onDeleteQueuedJob={() => undefined}
+        onCreateSchedule={() => undefined}
+        onUpdateSchedule={() => undefined}
+        onDeleteSchedule={() => undefined}
+        onSessionUpdate={() => undefined}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /local changes/i })
+      ).toBeTruthy()
+    );
+
+    await user.click(screen.getByRole("button", { name: /local changes/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByText("This project path is not inside a git repository.")
+          .length
+      ).toBeGreaterThan(0)
+    );
   });
 
   it("shows an auto-recovery notice when a missing tmux session is recreated", () => {

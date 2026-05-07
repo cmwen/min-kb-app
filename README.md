@@ -113,6 +113,7 @@ The agent rail also includes a built-in `copilot-orchestrator` agent plus a buil
 - queue async `copilot --yolo -p` or `gemini --yolo --prompt` jobs into clearly named tmux windows
 - attach one file to a delegated job so the selected CLI can inspect it from disk
 - stream tmux output live over SSE
+- pause Copilot-backed retries until the CLI-reported rate-limit reset time instead of hammering the same failure
 - show red-dot unread completion badges in the agent/session UI when delegated work finishes in the background
 - retry failed delegated jobs, cancel a stuck delegated job, restart the tmux pane for fresh work, delete queued jobs, and delete whole orchestrator sessions
 - create daily, weekly, or monthly recurring orchestrator schedules tied to a session prompt

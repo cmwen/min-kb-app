@@ -8,6 +8,9 @@ import type {
   OrchestratorSession,
   OrchestratorSessionCreateRequest,
   OrchestratorSessionUpdateRequest,
+  OrchestratorWorkingTree,
+  OrchestratorWorkingTreeDiff,
+  OrchestratorWorkingTreeFile,
 } from "@min-kb-app/shared";
 import * as RawAnsiModule from "ansi-to-react";
 import type {
@@ -16,7 +19,7 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { API_ROOT, api } from "../api";
 import {
   getAdaptiveReconnectDelayMs,
@@ -29,6 +32,8 @@ import {
   MAX_ORCHESTRATOR_TERMINAL_HEIGHT,
   MIN_ORCHESTRATOR_TERMINAL_HEIGHT,
 } from "../ui-preferences";
+import { OrchestratorChangesPanel } from "./OrchestratorChangesPanel";
+import { OrchestratorDiffModal } from "./OrchestratorDiffModal";
 import {
   type OrchestratorScheduleDraft,
   OrchestratorScheduleModal,
@@ -128,12 +133,32 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   const [terminalHistoryError, setTerminalHistoryError] = useState<
     string | undefined
   >();
+  const [workingTree, setWorkingTree] = useState<OrchestratorWorkingTree>();
+  const [workingTreeLoading, setWorkingTreeLoading] = useState(false);
+  const [workingTreeError, setWorkingTreeError] = useState<
+    string | undefined
+  >();
+  const [changesPanelOpen, setChangesPanelOpen] = useState(false);
+  const [selectedChangePath, setSelectedChangePath] = useState<
+    string | undefined
+  >();
+  const [selectedChangeDiff, setSelectedChangeDiff] =
+    useState<OrchestratorWorkingTreeDiff>();
+  const [selectedChangeDiffLoading, setSelectedChangeDiffLoading] =
+    useState(false);
+  const [selectedChangeDiffError, setSelectedChangeDiffError] = useState<
+    string | undefined
+  >();
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
   const [streamReconnectToken, setStreamReconnectToken] = useState(0);
   const terminalRef = useRef<HTMLDivElement>(null);
+  const changesPanelRef = useRef<HTMLDivElement>(null);
   const sessionUpdateRef = useRef(props.onSessionUpdate);
   const streamOffsetRef = useRef(props.session?.logSize ?? 0);
   const reconnectTimeoutRef = useRef<number | undefined>(undefined);
   const streamReconnectAttemptRef = useRef(0);
+  const workingTreeRequestRef = useRef(0);
+  const changeDiffRequestRef = useRef(0);
   const pageVisibleRef = useRef(
     typeof document === "undefined"
       ? true
@@ -144,6 +169,7 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     scrollTop: number;
     scrollHeight: number;
   } | null>(null);
+  const changesPanelId = useId();
   const projectPathDatalistId = "orchestrator-project-paths";
   const availableCliProviders = props.capabilities?.cliProviders ?? [];
   const selectedCreateCliProvider = useMemo(
@@ -357,6 +383,15 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
     setQueueOpen(false);
     setScheduleModalOpen(false);
     setEditingSchedule(undefined);
+    setWorkingTree(undefined);
+    setWorkingTreeLoading(false);
+    setWorkingTreeError(undefined);
+    setChangesPanelOpen(false);
+    setSelectedChangePath(undefined);
+    setSelectedChangeDiff(undefined);
+    setSelectedChangeDiffLoading(false);
+    setSelectedChangeDiffError(undefined);
+    setDiffModalOpen(false);
   }, [props.session?.sessionId]);
 
   useEffect(() => {
@@ -418,6 +453,82 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   useEffect(() => {
     sessionUpdateRef.current = props.onSessionUpdate;
   }, [props.onSessionUpdate]);
+
+  useEffect(() => {
+    if (!changesPanelOpen || diffModalOpen) {
+      return;
+    }
+
+    const container = changesPanelRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      if (!container.contains(event.target as Node)) {
+        setChangesPanelOpen(false);
+      }
+    };
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setChangesPanelOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+    };
+  }, [changesPanelOpen, diffModalOpen]);
+
+  useEffect(() => {
+    if (!props.session) {
+      return;
+    }
+
+    const requestId = workingTreeRequestRef.current + 1;
+    workingTreeRequestRef.current = requestId;
+    setWorkingTreeLoading(true);
+    setWorkingTreeError(undefined);
+
+    void api
+      .getOrchestratorSessionChanges(props.session.sessionId)
+      .then((response) => {
+        if (workingTreeRequestRef.current !== requestId) {
+          return;
+        }
+        setWorkingTree(response);
+        setSelectedChangePath((current) =>
+          current && response.files.some((file) => file.path === current)
+            ? current
+            : undefined
+        );
+        setSelectedChangeDiff((current) =>
+          current && response.files.some((file) => file.path === current.path)
+            ? current
+            : undefined
+        );
+        setSelectedChangeDiffError(undefined);
+      })
+      .catch((error) => {
+        if (workingTreeRequestRef.current !== requestId) {
+          return;
+        }
+        setWorkingTree(undefined);
+        setWorkingTreeError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load uncommitted changes."
+        );
+      })
+      .finally(() => {
+        if (workingTreeRequestRef.current === requestId) {
+          setWorkingTreeLoading(false);
+        }
+      });
+  }, [props.session?.sessionId, props.session?.updatedAt]);
 
   useEffect(() => {
     streamOffsetRef.current = props.session?.logSize ?? 0;
@@ -544,6 +655,74 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
   }, [props.session?.sessionId, streamReconnectToken]);
 
   const canLoadMoreOutput = !!props.session && terminalStartOffset > 0;
+  const visibleWorkingTreeFiles = workingTree?.files ?? [];
+  const selectedWorkingTreeFile = visibleWorkingTreeFiles.find(
+    (file) => file.path === selectedChangePath
+  );
+
+  useEffect(() => {
+    if (
+      !selectedChangePath ||
+      visibleWorkingTreeFiles.some((file) => file.path === selectedChangePath)
+    ) {
+      return;
+    }
+    setDiffModalOpen(false);
+    setSelectedChangePath(undefined);
+    setSelectedChangeDiff(undefined);
+    setSelectedChangeDiffLoading(false);
+    setSelectedChangeDiffError(undefined);
+  }, [selectedChangePath, visibleWorkingTreeFiles]);
+
+  async function handleSelectChangedFile(file: OrchestratorWorkingTreeFile) {
+    if (!props.session) {
+      return;
+    }
+
+    const requestId = changeDiffRequestRef.current + 1;
+    changeDiffRequestRef.current = requestId;
+    setSelectedChangePath(file.path);
+    setSelectedChangeDiff(undefined);
+    setSelectedChangeDiffLoading(true);
+    setSelectedChangeDiffError(undefined);
+    setDiffModalOpen(true);
+
+    try {
+      const diff = await api.getOrchestratorSessionChangeDiff(
+        props.session.sessionId,
+        file.path
+      );
+      if (changeDiffRequestRef.current !== requestId) {
+        return;
+      }
+      setSelectedChangeDiff(diff);
+    } catch (error) {
+      if (changeDiffRequestRef.current !== requestId) {
+        return;
+      }
+      setSelectedChangeDiff(undefined);
+      setSelectedChangeDiffError(
+        error instanceof Error ? error.message : "Failed to load the file diff."
+      );
+    } finally {
+      if (changeDiffRequestRef.current === requestId) {
+        setSelectedChangeDiffLoading(false);
+      }
+    }
+  }
+
+  function handleToggleChangesPanel() {
+    setChangesPanelOpen((current) => !current);
+  }
+
+  function handleCloseDiffModal() {
+    changeDiffRequestRef.current += 1;
+    setDiffModalOpen(false);
+    setSelectedChangePath(undefined);
+    setSelectedChangeDiff(undefined);
+    setSelectedChangeDiffLoading(false);
+    setSelectedChangeDiffError(undefined);
+  }
 
   async function handleLoadMoreOutput() {
     if (!props.session || loadingMoreOutput || terminalStartOffset <= 0) {
@@ -989,7 +1168,59 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
               </span>
             </div>
           </div>
-          <div className="orchestrator-session-actions">
+          <div
+            className="orchestrator-session-actions"
+            ref={changesPanelRef}
+            aria-live="polite"
+          >
+            <div className="runtime-control orchestrator-changes-control">
+              <button
+                type="button"
+                className={
+                  changesPanelOpen
+                    ? "toolbar-chip orchestrator-changes-trigger open"
+                    : "toolbar-chip orchestrator-changes-trigger"
+                }
+                aria-expanded={changesPanelOpen}
+                aria-controls={changesPanelId}
+                aria-haspopup="dialog"
+                onClick={handleToggleChangesPanel}
+              >
+                <span className="orchestrator-changes-trigger-topline">
+                  <span className="toolbar-chip-label">Local changes</span>
+                  <span className="orchestrator-changes-trigger-badge">
+                    {workingTree?.state === "dirty"
+                      ? visibleWorkingTreeFiles.length
+                      : 0}
+                  </span>
+                </span>
+                <strong>
+                  {workingTreeLoading
+                    ? "Loading changes…"
+                    : workingTree?.state === "dirty"
+                      ? `${visibleWorkingTreeFiles.length} changed`
+                      : workingTree?.state === "clean"
+                        ? "Working tree clean"
+                        : "Change details"}
+                </strong>
+                <small>
+                  {workingTreeError ??
+                    workingTree?.message ??
+                    (workingTree?.state === "dirty"
+                      ? "Open to inspect changed files."
+                      : "Open for repository status.")}
+                </small>
+              </button>
+              <OrchestratorChangesPanel
+                open={changesPanelOpen}
+                panelId={changesPanelId}
+                workingTree={workingTree}
+                loading={workingTreeLoading}
+                error={workingTreeError}
+                selectedPath={selectedChangePath}
+                onSelectFile={(file) => void handleSelectChangedFile(file)}
+              />
+            </div>
             <button
               type="button"
               className="ghost-button"
@@ -1021,6 +1252,14 @@ export function OrchestratorPane(props: OrchestratorPaneProps) {
             ) : null}
           </div>
         </div>
+        <OrchestratorDiffModal
+          open={diffModalOpen}
+          file={selectedWorkingTreeFile}
+          diff={selectedChangeDiff}
+          loading={selectedChangeDiffLoading}
+          error={selectedChangeDiffError}
+          onClose={handleCloseDiffModal}
+        />
         <div
           id={settingsPanelId}
           className="collapsible-region orchestrator-settings-panel-shell"

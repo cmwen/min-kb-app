@@ -1,6 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFile as execFileCallback } from "node:child_process";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { resolveWorkspace } from "@min-kb-app/min-kb-store";
 import type {
   ChatSession,
@@ -44,6 +53,7 @@ import {
   buildMemoryAnalysisRuntimeConfig,
   DEFAULT_MEMORY_ANALYSIS_MODEL,
   deriveSessionStatus,
+  extractCopilotRateLimitWaitSeconds,
   isMemorySkillName,
   parseMemoryAnalysisMarkdown,
   resolveMemoryAnalysisModel,
@@ -52,6 +62,7 @@ import {
 } from "./orchestrator.js";
 
 const tempRoots: string[] = [];
+const execFile = promisify(execFileCallback);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -968,6 +979,131 @@ describe("buildDelegationShellScript", () => {
     expect(script).toContain("tmux display-message -d 15000");
     expect(script).toContain("copilot --model 'gpt-5.4' --yolo -p");
     expect(script).toContain("/tmp/job-1234/DONE.json");
+    expect(script).toContain("extract_rate_limit_wait_seconds()");
+    expect(script).toContain("Copilot rate limit detected");
+  });
+
+  it("waits for the Copilot rate limit reset before retrying", async () => {
+    const root = await createTempJobDirectory();
+    const binRoot = path.join(root, "bin");
+    await mkdir(binRoot, { recursive: true });
+    const outputPath = path.join(root, "output.log");
+    const donePath = path.join(root, "DONE.json");
+    const counterPath = path.join(root, "copilot-count.txt");
+    const sleepLogPath = path.join(root, "sleep.log");
+    const tmuxLogPath = path.join(root, "tmux.log");
+    const scriptPath = path.join(root, "run.sh");
+
+    await writeExecutable(
+      path.join(binRoot, "copilot"),
+      [
+        "#!/usr/bin/env bash",
+        "set -eu",
+        `counter_path=${shellQuoteForTest(counterPath)}`,
+        'count="0"',
+        'if [ -f "$counter_path" ]; then',
+        '  count=$(cat "$counter_path")',
+        "fi",
+        "count=$((count + 1))",
+        'printf "%s" "$count" > "$counter_path"',
+        'if [ "$count" -eq 1 ]; then',
+        "  echo 'Error: 429 Too Many Requests' >&2",
+        "  echo 'Retry-After: 2' >&2",
+        "  exit 1",
+        "fi",
+        "echo 'Recovered after reset'",
+        "exit 0",
+      ].join("\n")
+    );
+    await writeExecutable(
+      path.join(binRoot, "sleep"),
+      [
+        "#!/usr/bin/env bash",
+        "set -eu",
+        `printf '%s\n' "$1" >> ${shellQuoteForTest(sleepLogPath)}`,
+      ].join("\n")
+    );
+    await writeExecutable(
+      path.join(binRoot, "tmux"),
+      [
+        "#!/usr/bin/env bash",
+        "set -eu",
+        `printf '%s\n' "$*" >> ${shellQuoteForTest(tmuxLogPath)}`,
+      ].join("\n")
+    );
+
+    const script = buildDelegationShellScript({
+      jobId: "job-1234",
+      donePath,
+      outputPath,
+      model: "gpt-5.4",
+      prompt: "Investigate the regression",
+      promptMode: "inline",
+      projectPurpose: "Repair regressions",
+      executionMode: "standard",
+      tmuxTarget: "%42",
+    });
+    await writeExecutable(scriptPath, script);
+
+    await execFile("bash", [scriptPath], {
+      env: {
+        ...process.env,
+        PATH: `${binRoot}:${process.env.PATH ?? ""}`,
+      },
+    });
+
+    expect(await readFile(counterPath, "utf8")).toBe("2");
+    expect(await readFile(sleepLogPath, "utf8")).toContain("7");
+    expect(await readFile(outputPath, "utf8")).toContain(
+      "Copilot rate limit detected"
+    );
+    expect(await readFile(donePath, "utf8")).toContain('"exitCode": 0');
+  });
+});
+
+describe("extractCopilotRateLimitWaitSeconds", () => {
+  it("prefers Retry-After seconds when present", () => {
+    expect(
+      extractCopilotRateLimitWaitSeconds(
+        "Error: 429 Too Many Requests\nRetry-After: 17"
+      )
+    ).toBe(17);
+  });
+
+  it("derives the wait from reset timestamps", () => {
+    const now = Date.parse("2026-05-06T03:00:00Z");
+    expect(
+      extractCopilotRateLimitWaitSeconds(
+        "GitHub Copilot session limit reached. Available again at: 2026-05-06T03:02:10Z",
+        now
+      )
+    ).toBe(130);
+  });
+
+  it("derives the wait from x-ratelimit-reset epochs", () => {
+    const now = Date.parse("2026-05-06T03:00:00Z");
+    expect(
+      extractCopilotRateLimitWaitSeconds(
+        "Error: rate limit exceeded\nx-ratelimit-reset: 1778036585",
+        now
+      )
+    ).toBe(185);
+  });
+
+  it("sums compound relative durations from the Copilot error message", () => {
+    expect(
+      extractCopilotRateLimitWaitSeconds(
+        "GitHub Copilot rate limit reached. Try again in 1m 30s."
+      )
+    ).toBe(90);
+  });
+
+  it("falls back to a conservative default for generic rate limit errors", () => {
+    expect(
+      extractCopilotRateLimitWaitSeconds(
+        "GitHub Copilot weekly limit reached. Please try again later."
+      )
+    ).toBe(60);
   });
 });
 
@@ -990,6 +1126,15 @@ describe("deriveSessionStatus", () => {
     });
   });
 });
+
+async function writeExecutable(filePath: string, contents: string) {
+  await writeFile(filePath, `${contents}\n`, "utf8");
+  await chmod(filePath, 0o755);
+}
+
+function shellQuoteForTest(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
 
 describe("buildMemoryAnalysisPrompt", () => {
   it("formats a chat transcript for skill-driven memory updates", () => {
@@ -1649,6 +1794,280 @@ describe("TmuxOrchestratorService queue recovery", () => {
       }
     );
     expect(result).toEqual(recoveredSession);
+  });
+});
+
+describe("TmuxOrchestratorService.getSessionChanges", () => {
+  it("returns parsed git status entries for the session project", async () => {
+    const session: OrchestratorSession = {
+      sessionId: "session-1",
+      agentId: "copilot-orchestrator",
+      title: "Repo support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Handle runtime support work",
+      projectPath: "/tmp/project",
+      projectPurpose: "Handle runtime support work",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-repo-support-0001",
+      tmuxPaneId: "%42",
+      status: "idle",
+      activeJobId: undefined,
+      lastJobId: undefined,
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/orchestrator/session-1",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/session-1/SESSION.md",
+      jobs: [],
+      terminalTail: "",
+      logSize: 0,
+    };
+    const service = new TmuxOrchestratorService(
+      { agentsRoot: "/tmp" } as never,
+      "/tmp"
+    );
+    const runGitCommand = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "/tmp/project\n", stderr: "" })
+      .mockResolvedValueOnce({
+        stdout: [
+          " M apps/web/src/App.tsx",
+          "R  old-name.ts -> new-name.ts",
+          "?? notes.md",
+          "",
+        ].join("\n"),
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: "12\t4\tapps/web/src/App.tsx\n",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: "0\t0\told-name.ts => new-name.ts\n",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: "1\t0\tnotes.md\n",
+        stderr: "",
+      });
+
+    storeMocks.getOrchestratorSession.mockResolvedValueOnce(session);
+    Object.assign(service as object, {
+      commandExists: vi.fn().mockResolvedValue(true),
+      runGitCommand,
+    });
+
+    await expect(service.getSessionChanges("session-1")).resolves.toEqual({
+      state: "dirty",
+      projectPath: "/tmp/project",
+      repositoryRoot: "/tmp/project",
+      files: [
+        {
+          path: "apps/web/src/App.tsx",
+          previousPath: undefined,
+          statusCode: " M",
+          stagedStatus: undefined,
+          unstagedStatus: "modified",
+          displayStatus: "Modified unstaged",
+          lineStats: {
+            added: 12,
+            removed: 4,
+            isBinary: false,
+          },
+        },
+        {
+          path: "new-name.ts",
+          previousPath: "old-name.ts",
+          statusCode: "R ",
+          stagedStatus: "renamed",
+          unstagedStatus: undefined,
+          displayStatus: "Renamed staged",
+          lineStats: {
+            added: 0,
+            removed: 0,
+            isBinary: false,
+          },
+        },
+        {
+          path: "notes.md",
+          previousPath: undefined,
+          statusCode: "??",
+          stagedStatus: undefined,
+          unstagedStatus: "untracked",
+          displayStatus: "Untracked",
+          lineStats: {
+            added: 1,
+            removed: 0,
+            isBinary: false,
+          },
+        },
+      ],
+      message: undefined,
+    });
+  });
+
+  it("reports non-git project paths with an empty state", async () => {
+    const session: OrchestratorSession = {
+      sessionId: "session-1",
+      agentId: "copilot-orchestrator",
+      title: "Repo support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Handle runtime support work",
+      projectPath: "/tmp/project",
+      projectPurpose: "Handle runtime support work",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-repo-support-0001",
+      tmuxPaneId: "%42",
+      status: "idle",
+      activeJobId: undefined,
+      lastJobId: undefined,
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/orchestrator/session-1",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/session-1/SESSION.md",
+      jobs: [],
+      terminalTail: "",
+      logSize: 0,
+    };
+    const service = new TmuxOrchestratorService(
+      { agentsRoot: "/tmp" } as never,
+      "/tmp"
+    );
+
+    storeMocks.getOrchestratorSession.mockResolvedValueOnce(session);
+    Object.assign(service as object, {
+      commandExists: vi.fn().mockResolvedValue(true),
+      runGitCommand: vi.fn().mockRejectedValue({
+        code: 128,
+        stderr: "fatal: not a git repository",
+      }),
+    });
+
+    await expect(service.getSessionChanges("session-1")).resolves.toEqual({
+      state: "non-git",
+      projectPath: "/tmp/project",
+      repositoryRoot: undefined,
+      files: [],
+      message: "This project path is not inside a git repository.",
+    });
+  });
+});
+
+describe("TmuxOrchestratorService.getSessionChangeDiff", () => {
+  it("loads an inline diff for a selected changed file", async () => {
+    const session: OrchestratorSession = {
+      sessionId: "session-1",
+      agentId: "copilot-orchestrator",
+      title: "Repo support",
+      startedAt: "2026-03-20T12:00:00Z",
+      updatedAt: "2026-03-20T12:05:00Z",
+      summary: "Handle runtime support work",
+      projectPath: "/tmp/project",
+      projectPurpose: "Handle runtime support work",
+      model: "gpt-5.4",
+      tmuxSessionName: "min-kb-app-orchestrator",
+      tmuxWindowName: "project-repo-support-0001",
+      tmuxPaneId: "%42",
+      status: "idle",
+      activeJobId: undefined,
+      lastJobId: undefined,
+      availableCustomAgents: [],
+      selectedCustomAgentId: undefined,
+      sessionDirectory: "/tmp/orchestrator/session-1",
+      manifestPath:
+        "agents/copilot-orchestrator/history/2026-03/session-1/SESSION.md",
+      jobs: [],
+      terminalTail: "",
+      logSize: 0,
+    };
+    const service = new TmuxOrchestratorService(
+      { agentsRoot: "/tmp" } as never,
+      "/tmp"
+    );
+    const runGitCommand = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: "/tmp/project\n", stderr: "" })
+      .mockResolvedValueOnce({
+        stdout: "?? notes.md\n",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: "1\t0\tnotes.md\n",
+        stderr: "",
+      })
+      .mockResolvedValueOnce({
+        stdout: [
+          "diff --git a/notes.md b/notes.md",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/notes.md",
+          "@@ -0,0 +1 @@",
+          "+hello",
+          "",
+        ].join("\n"),
+        stderr: "",
+      });
+
+    storeMocks.getOrchestratorSession.mockResolvedValueOnce(session);
+    Object.assign(service as object, {
+      commandExists: vi.fn().mockResolvedValue(true),
+      runGitCommand,
+    });
+
+    await expect(
+      service.getSessionChangeDiff("session-1", "notes.md")
+    ).resolves.toEqual({
+      state: "ready",
+      projectPath: "/tmp/project",
+      repositoryRoot: "/tmp/project",
+      path: "notes.md",
+      diff: [
+        "diff --git a/notes.md b/notes.md",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/notes.md",
+        "@@ -0,0 +1 @@",
+        "+hello",
+        "",
+      ].join("\n"),
+      structured: {
+        oldPath: undefined,
+        newPath: "notes.md",
+        headerLines: [
+          "diff --git a/notes.md b/notes.md",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/notes.md",
+        ],
+        hunks: [
+          {
+            header: "@@ -0,0 +1 @@",
+            lines: [
+              {
+                kind: "add",
+                content: "hello",
+                oldLineNumber: undefined,
+                newLineNumber: 1,
+              },
+            ],
+          },
+        ],
+        isBinary: false,
+        hasText: true,
+      },
+      message: undefined,
+    });
+    expect(runGitCommand).toHaveBeenNthCalledWith(
+      4,
+      ["diff", "--no-index", "--no-color", "--", "/dev/null", "notes.md"],
+      "/tmp/project",
+      [0, 1]
+    );
   });
 });
 

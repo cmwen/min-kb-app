@@ -18,6 +18,8 @@ import type {
   OrchestratorSessionUpdateRequest,
   OrchestratorTerminalHistoryChunk,
   OrchestratorTerminalInputRequest,
+  OrchestratorWorkingTree,
+  OrchestratorWorkingTreeDiff,
   ScheduleTask,
   ScheduleTaskCreateRequest,
   ScheduleTaskUpdateRequest,
@@ -109,6 +111,14 @@ export const api = {
     request<OrchestratorSession[]>("/api/orchestrator/sessions"),
   getOrchestratorSession: (sessionId: string) =>
     request<OrchestratorSession>(`/api/orchestrator/sessions/${sessionId}`),
+  getOrchestratorSessionChanges: (sessionId: string) =>
+    request<OrchestratorWorkingTree>(
+      `/api/orchestrator/sessions/${sessionId}/changes`
+    ),
+  getOrchestratorSessionChangeDiff: (sessionId: string, filePath: string) =>
+    request<OrchestratorWorkingTreeDiff>(
+      `/api/orchestrator/sessions/${sessionId}/changes/diff?path=${encodeURIComponent(filePath)}`
+    ),
   createOrchestratorSession: (requestBody: OrchestratorSessionCreateRequest) =>
     request<OrchestratorSession>("/api/orchestrator/sessions", {
       method: "POST",

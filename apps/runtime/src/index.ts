@@ -33,6 +33,8 @@ import type {
   OrchestratorSessionUpdateRequest,
   OrchestratorTerminalHistoryChunk,
   OrchestratorTerminalInputRequest,
+  OrchestratorWorkingTree,
+  OrchestratorWorkingTreeDiff,
   ScheduleTaskCreateRequest,
   ScheduleTaskUpdateRequest,
   WorkspaceSummary,
@@ -47,6 +49,8 @@ import {
   orchestratorSessionUpdateSchema,
   orchestratorTerminalHistoryChunkSchema,
   orchestratorTerminalInputSchema,
+  orchestratorWorkingTreeDiffSchema,
+  orchestratorWorkingTreeSchema,
   scheduleTaskCreateSchema,
   scheduleTaskUpdateSchema,
 } from "@min-kb-app/shared";
@@ -412,6 +416,33 @@ app.get("/api/orchestrator/sessions/:sessionId", async (context) => {
     await orchestrator.getSession(context.req.param("sessionId"))
   );
 });
+
+app.get("/api/orchestrator/sessions/:sessionId/changes", async (context) => {
+  const changes = orchestratorWorkingTreeSchema.parse(
+    (await orchestrator.getSessionChanges(
+      context.req.param("sessionId")
+    )) satisfies OrchestratorWorkingTree
+  );
+  return context.json(changes);
+});
+
+app.get(
+  "/api/orchestrator/sessions/:sessionId/changes/diff",
+  async (context) => {
+    const filePath = context.req.query("path")?.trim();
+    if (!filePath) {
+      return context.json({ error: "Change path is required." }, 400);
+    }
+
+    const diff = orchestratorWorkingTreeDiffSchema.parse(
+      (await orchestrator.getSessionChangeDiff(
+        context.req.param("sessionId"),
+        filePath
+      )) satisfies OrchestratorWorkingTreeDiff
+    );
+    return context.json(diff);
+  }
+);
 
 app.get("/api/orchestrator/sessions/:sessionId/terminal", async (context) => {
   const sessionId = context.req.param("sessionId");

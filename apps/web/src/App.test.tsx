@@ -15,6 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   deleteSession: vi.fn(),
   getOrchestratorCapabilities: vi.fn(),
+  getOrchestratorSessionChanges: vi.fn(),
+  getOrchestratorSessionChangeDiff: vi.fn(),
   getScheduledTask: vi.fn(),
   analyzeMemory: vi.fn(),
   sendMessage: vi.fn(),
@@ -117,6 +119,21 @@ beforeEach(() => {
     tmuxSessionName: "min-kb-app-orchestrator",
   });
   apiMocks.listOrchestratorSessions.mockResolvedValue([]);
+  apiMocks.getOrchestratorSessionChanges.mockResolvedValue({
+    state: "clean",
+    projectPath: "/tmp/store",
+    repositoryRoot: "/tmp/store",
+    files: [],
+    message: "No uncommitted changes in this project.",
+  });
+  apiMocks.getOrchestratorSessionChangeDiff.mockResolvedValue({
+    state: "empty",
+    projectPath: "/tmp/store",
+    repositoryRoot: "/tmp/store",
+    path: "README.md",
+    diff: "",
+    message: "No text diff is available for this file yet.",
+  });
   apiMocks.deleteSession.mockResolvedValue({ ok: true });
   apiMocks.listSessions.mockResolvedValue([
     {

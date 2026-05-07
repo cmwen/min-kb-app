@@ -381,6 +381,113 @@ export type OrchestratorExecutionMode = z.infer<
   typeof orchestratorExecutionModeSchema
 >;
 
+export const orchestratorWorkingTreeStateSchema = z.enum([
+  "clean",
+  "dirty",
+  "non-git",
+  "git-unavailable",
+]);
+export type OrchestratorWorkingTreeState = z.infer<
+  typeof orchestratorWorkingTreeStateSchema
+>;
+
+export const orchestratorWorkingTreeFileStatusSchema = z.enum([
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "copied",
+  "untracked",
+  "unmerged",
+]);
+export type OrchestratorWorkingTreeFileStatus = z.infer<
+  typeof orchestratorWorkingTreeFileStatusSchema
+>;
+
+export const orchestratorWorkingTreeFileSchema = z.object({
+  path: z.string().min(1),
+  previousPath: z.string().min(1).optional(),
+  statusCode: z.string().length(2),
+  stagedStatus: orchestratorWorkingTreeFileStatusSchema.optional(),
+  unstagedStatus: orchestratorWorkingTreeFileStatusSchema.optional(),
+  displayStatus: z.string().min(1),
+  lineStats: z
+    .object({
+      added: z.number().int().nonnegative(),
+      removed: z.number().int().nonnegative(),
+      isBinary: z.boolean().default(false),
+    })
+    .optional(),
+});
+export type OrchestratorWorkingTreeFile = z.infer<
+  typeof orchestratorWorkingTreeFileSchema
+>;
+
+export const orchestratorWorkingTreeSchema = z.object({
+  state: orchestratorWorkingTreeStateSchema,
+  projectPath: z.string().min(1),
+  repositoryRoot: z.string().min(1).optional(),
+  files: z.array(orchestratorWorkingTreeFileSchema).default([]),
+  message: z.string().min(1).optional(),
+});
+export type OrchestratorWorkingTree = z.infer<
+  typeof orchestratorWorkingTreeSchema
+>;
+
+export const orchestratorWorkingTreeDiffStateSchema = z.enum([
+  "ready",
+  "empty",
+  "non-git",
+  "git-unavailable",
+  "not-found",
+]);
+export type OrchestratorWorkingTreeDiffState = z.infer<
+  typeof orchestratorWorkingTreeDiffStateSchema
+>;
+
+export const orchestratorStructuredDiffLineSchema = z.object({
+  kind: z.enum(["context", "add", "remove", "meta"]),
+  content: z.string(),
+  oldLineNumber: z.number().int().positive().optional(),
+  newLineNumber: z.number().int().positive().optional(),
+});
+export type OrchestratorStructuredDiffLine = z.infer<
+  typeof orchestratorStructuredDiffLineSchema
+>;
+
+export const orchestratorStructuredDiffHunkSchema = z.object({
+  header: z.string().min(1),
+  lines: z.array(orchestratorStructuredDiffLineSchema).default([]),
+});
+export type OrchestratorStructuredDiffHunk = z.infer<
+  typeof orchestratorStructuredDiffHunkSchema
+>;
+
+export const orchestratorStructuredDiffSchema = z.object({
+  oldPath: z.string().min(1).optional(),
+  newPath: z.string().min(1).optional(),
+  headerLines: z.array(z.string()).default([]),
+  hunks: z.array(orchestratorStructuredDiffHunkSchema).default([]),
+  isBinary: z.boolean().default(false),
+  hasText: z.boolean().default(false),
+});
+export type OrchestratorStructuredDiff = z.infer<
+  typeof orchestratorStructuredDiffSchema
+>;
+
+export const orchestratorWorkingTreeDiffSchema = z.object({
+  state: orchestratorWorkingTreeDiffStateSchema,
+  projectPath: z.string().min(1),
+  repositoryRoot: z.string().min(1).optional(),
+  path: z.string().min(1),
+  diff: z.string(),
+  structured: orchestratorStructuredDiffSchema.optional(),
+  message: z.string().min(1).optional(),
+});
+export type OrchestratorWorkingTreeDiff = z.infer<
+  typeof orchestratorWorkingTreeDiffSchema
+>;
+
 export const orchestratorScheduleFrequencySchema = z.enum([
   "daily",
   "weekly",
